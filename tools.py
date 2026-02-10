@@ -59,7 +59,7 @@ def create_video(arrays, labels, x_axis=None, file_name='animation.mp4', fps=100
             image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
             writer.append_data(image)
             ax.clear()
-            ax.set_ylim(-limit_value, limit_value)
+            ax.set_ylim(-0.25, 0.25)
         plt.close(fig)
     
     if output_format == 'MP4':

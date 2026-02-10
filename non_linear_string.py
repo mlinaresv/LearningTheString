@@ -11,7 +11,8 @@ class NonLinearString:
     def __init__(self, 
                  L, R, rho, T, E, eta0, eta1, 
                  num_spatial_points,
-                 est_hamiltonian=None):
+                 est_hamiltonian=None,
+                 device='cpu'):
         
         # Intrinsic parameters.
         self.L = L       # Length of the string [m].
@@ -50,6 +51,8 @@ class NonLinearString:
             self.hamiltonian_grad = self.est_hamiltonian_grad
         else:
             self.hamiltonian_grad = self.true_hamiltonian_grad
+
+        self.device = device
     
     def true_hamiltonian(self, x: np.ndarray, h: np.ndarray):
         a0, a1, a2 = x[..., 0], x[..., 1], x[..., 2]
@@ -63,7 +66,7 @@ class NonLinearString:
         return h * np.concatenate((e_pi, e_strain, e_strain_x), axis=-1)
     
     def est_hamiltonian_grad(self, x: np.ndarray, h=None):
-        x = torch.from_numpy(x).float().to('cuda').requires_grad_(True)
+        x = torch.from_numpy(x).float().to(self.device).requires_grad_(True)
         hamiltonian_pred = self.hamiltonian(x)
         with torch.set_grad_enabled(True):
             h_x = torch.autograd.grad(torch.sum(hamiltonian_pred), x, create_graph=True)[0]

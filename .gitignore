@@ -1,0 +1,17 @@
+# PDF files.
+*.pdf
+
+# Video files.
+*.mp4
+
+# Audio files.
+*.wav
+
+# Experiment results.
+*.out
+
+# Numpy datafiles.
+*.npy 
+
+# Pycache folder.
+__pycache__/*
