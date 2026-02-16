@@ -28,7 +28,8 @@ def generate_video_from_trajectory(data):
     )
 
     print('Saving the video')
-    ani.save("output.mp4", fps=40)
+    ani.save("output.mp4", fps=120)
+    print('Video saved')
     return 
 
 

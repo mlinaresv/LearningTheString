@@ -72,7 +72,7 @@ class SAVSolver():
 
         return qnext, pnext, rnext
 
-    def integrate(self, qlast0, qnext0, p0, u0, u_func, duration):
+    def integrate(self, qlast0, qnext0, p0, u_func, duration):
         """ Integrates the dynamics using provided initial condition, input function and duration. """
         # Time vector.
         self.Nt = int(duration / self.dt)
