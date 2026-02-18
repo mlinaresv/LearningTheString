@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 
 DEFAULT_STRING_PARAMS = {
     "l0": 1.1,
@@ -41,20 +41,20 @@ class String:
 
 
     def fill_intermediary_physical_params(self):
-        self.A = np.pi * self.Ra**2
+        self.A = torch.pi * self.Ra**2
         self.rhol = self.rho * self.A
-        self.I = np.pi * (self.Ra)**4 / 4
+        self.I = torch.pi * (self.Ra)**4 / 4
 
 
     def h_stability(self, kappa=0.9):
         dt = 1 / self.sr 
 
         # Stability condition (Eq. (21))
-        gamma = dt**2 * self.T + (4 * dt * self.rhol * self.eta1)
-        self.h = np.sqrt((gamma + np.sqrt(gamma**2 + 16 * self.rhol * self.E * self.I * dt**2)) / (2 * self.rhol))
+        gamma = torch.tensor(dt**2 * self.T + (4 * dt * self.rhol * self.eta1))
+        self.h = torch.sqrt((gamma + torch.sqrt(gamma**2 + 16 * self.rhol * self.E * self.I * dt**2)) / (2 * self.rhol))
         
         # N is determined using the formula (24) in the paper.
-        self.N = int(np.floor(kappa * self.l0 / (self.h))) - 1
+        self.N = int(torch.floor(kappa * self.l0 / (self.h))) - 1
 
         # N is forced to be even, as this ensures that the displacement at the middle of the string can be observed.
         if self.N % 2 != 0:
@@ -73,7 +73,7 @@ class String:
         """
         Computes the second derivative operator with respect to q: \frac{d^2 q}{dx^2} \approx \frac{q_{i+1} - 2 q_i + q_{i-1}}{h^2}.
         """
-        d2xq = np.zeros(self.N)
+        d2xq = torch.zeros(self.N)
         d2xq = - 2 * q
         d2xq[:-1] += q[1:]
         d2xq[1:] += q[:-1]
@@ -97,24 +97,32 @@ class String:
     def G(self, excitation_position):
         """ Applied control in the middle of the string. """
         assert excitation_position <= self.N, f'The excitation node must be lower than the total number of nodes ({self.N}).'
-        G_val = np.zeros((self.N, self.Nu))
+        G_val = torch.zeros((self.N, self.Nu))
         G_val[excitation_position, 0] = 1
         return G_val
     
 
+    def Ek(self, p):
+        return 0.5 * p.dot(self.M * p)
+    
+
+    def Ep(self, q):
+        return 0.5 * q.dot(self.K_op(q))
+    
+
     def Enl(self, q):
         """ Nonlinear energy operator Eq. (5c). """
-        dxq = np.zeros(self.N + 1)
+        dxq = torch.zeros(self.N + 1)
         dxq[-1] = 0
         dxq[:-1] = q
         dxq[1:] -= q
         dxq /= self.h
-        return self.EnlGeomConst * np.sum((dxq)**4)
+        return self.EnlGeomConst * torch.sum((dxq)**4)
     
 
     def Fnl(self, q):
         """ Nonlinear force operator Eq. (5d). """
-        dxq = np.zeros(self.N + 1)
+        dxq = torch.zeros(self.N + 1)
         dxq[-1] = 0
         dxq[:-1] = q
         dxq[1:] -= q
@@ -122,3 +130,23 @@ class String:
         dxq3 = dxq**3
         Dmindxq3 = - 1 / self.h * (dxq3[1:] - dxq3[:-1])
         return 4 * self.EnlGeomConst * Dmindxq3
+    
+
+    def hamiltonian(self, q, p):
+        return self.Ek(p) + self.Ep(q) + self.Enl(q)
+    
+
+    def hamiltonian_grad(self, q, p):
+        # Evaluate the Hamiltonian.
+        q_grad = self.K_op(q) + self.Fnl(q)
+        p_grad = self.M * p
+        return q_grad, p_grad
+    
+
+    def dynamics(self, q, p, u, excitation_position):
+        # Compute the efforts.
+        efforts = self.hamiltonian_grad(q, p)
+        # First compute the J-R matrix.
+        q_dot = (efforts[1] / self.h)
+        p_dot = (- efforts[0] / self.h) - (self.Rmid * efforts[1]) - self.Rsv_op(efforts[1]) + ((self.G(excitation_position) * u) / self.h).squeeze()
+        return torch.cat((q_dot, p_dot), axis=0)
