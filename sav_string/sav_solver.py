@@ -35,7 +35,7 @@ class SAVSolver():
         return - self.lambda0 * self.epsilon * self.model.M * np.sign(p) / (np.sum(np.abs(p)) + self.Num_eps)
 
     
-    def time_step(self, qlast, plast, rn, unow):
+    def time_step(self, qlast, plast, rn, unow, excitation_position):
         """ Returns the next state by solving (19a-h). """
         # qlast = q^{n-1/2}; qnow = q^{n+1/2}; rn=rn; unow=u^{n+1/2}.
 
@@ -59,7 +59,7 @@ class SAVSolver():
             - self.model.J0 * (self.model.K_op(qnext))
             + Bn_p
             - gn * rn
-            + (self.model.G() @ unow).squeeze()
+            + (self.model.G(excitation_position) @ unow).squeeze()
         )
 
         # Apply Sherman–Morrison inverse
@@ -72,7 +72,7 @@ class SAVSolver():
 
         return qnext, pnext, rnext
 
-    def integrate(self, qlast0, qnext0, p0, u_func, duration):
+    def integrate(self, qlast0, qnext0, p0, u_func, duration, excitation_position):
         """ Integrates the dynamics using provided initial condition, input function and duration. """
         # Time vector.
         self.Nt = int(duration / self.dt)
@@ -88,14 +88,10 @@ class SAVSolver():
 
         # Main loop.
         for i in range(self.Nt):
-            qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_func((i + 0.5) * self.dt))
+            qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_func((i + 0.5) * self.dt), excitation_position=excitation_position)
             qlast = qnext
             plast = pnext
             rnow = rnext  
-
-            if np.isnan(qnext).any() or np.isnan(pnext).any():
-                print(f'Found nan values in {i}!')
-                break
             # Append the new generated states to the final trajectory.
             p_trajectory[i + 1, :] = pnext
             q_trajectory[i + 1, :] = qnext

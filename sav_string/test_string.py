@@ -18,7 +18,7 @@ DEFAULT_STRING_PARAMS = {
 }
 
 # Define the simulation parameters.
-sr = 44100
+sr = 88200
 initial_position_type = 'zero'
 amplitude_initial_position = 8e-3
 control_type = 'pluck'

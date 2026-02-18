@@ -94,10 +94,11 @@ class String:
         return - 2 * self.rhol * self.eta1 * d2xq / self.h
     
 
-    def G(self):
+    def G(self, excitation_position):
         """ Applied control in the middle of the string. """
+        assert excitation_position <= self.N, f'The excitation node must be lower than the total number of nodes ({self.N}).'
         G_val = np.zeros((self.N, self.Nu))
-        G_val[self.N//2, 0] = 1
+        G_val[excitation_position, 0] = 1
         return G_val
     
 

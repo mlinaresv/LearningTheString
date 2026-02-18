@@ -15,3 +15,9 @@
 
 # Pycache folder.
 __pycache__/*
+sav_string/__pycache__/*
+
+# Data files.
+*.dat
+*.h5
+*.pyc
