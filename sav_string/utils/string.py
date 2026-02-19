@@ -57,11 +57,11 @@ def unzip_and_concatenate(data):
     return state, exc
 
 
-def save_as_hdf5(state, exc):
+def save_as_hdf5(state, exc, filename):
     # Create the directory to save the data
     os.makedirs('./string_dataset/data', exist_ok=True)
 
-    with h5py.File("./string_dataset/data/string_dataset.h5", "w") as f:
+    with h5py.File(f"./string_dataset/data/{filename}.h5", "w") as f:
         f.create_dataset(
             "state",
             data=state,
