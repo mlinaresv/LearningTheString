@@ -39,6 +39,7 @@ class H5TimeShiftDataset(Dataset):
         self.state_data = self.file['state']
         self.exc_data = self.file['exc']
         self.N, self.T, self.D = self.state_data.shape
+        self.n = (self.D - 1) // 2
 
     def __len__(self):
         return self.N * (self.T - 1)
@@ -47,8 +48,12 @@ class H5TimeShiftDataset(Dataset):
         n_idx = idx // (self.T - 1)
         t_idx = idx % (self.T - 1)
 
-        x = self.state_data[n_idx, t_idx]
+
+        q = self.state_data[n_idx, t_idx - 1: t_idx + 1, :self.n] if t_idx == 0 else self.state_data[n_idx, t_idx, :self.n]
+        p = self.state_data[n_idx, t_idx, self.n:-1]
+        u = self.state_data[n_idx, t_idx, -1]
         exc_position = self.exc_data[n_idx]
         y = self.state_data[n_idx, t_idx + 1]
 
-        return (torch.tensor(x, dtype=torch.float32), exc_position), torch.tensor(y, dtype=torch.float32)
+        return ((torch.tensor(q, dtype=torch.float32), torch.tensor(p, dtype=torch.float32), torch.tensor(u, dtype=torch.float32), exc_position), 
+                torch.tensor(y, dtype=torch.float32))

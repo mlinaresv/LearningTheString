@@ -81,7 +81,7 @@ class SAVSolver():
 
         # State initialization.
         rnow = np.sqrt(2 * self.model.Enl((qlast0 + qnext0) / 2) + self.C0)
-        qlast = qlast0
+        qlast = qnext0
         plast = p0
         p_trajectory[0, :] = plast
         q_trajectory[0, :] = qlast
