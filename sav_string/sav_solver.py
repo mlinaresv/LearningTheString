@@ -23,15 +23,12 @@ class SAVSolver():
         """ Compute the interconnection matrix for the auxiliary variable. """
         Enl = self.model.Enl(q)
         Fnl = self.model.Fnl(q)
-        return J0 * Fnl / (self.lib.sqrt(2 * Enl + self.C0 + self.Num_eps))
+        return J0 * Fnl / (self.lib.sqrt(2 * Enl.unsqueeze(1) + self.C0 + self.Num_eps))
     
 
     def g_mod(self, q, p, r, M):
         Enl = self.model.Enl(q)
-        maxEnl = 0
-        if Enl > maxEnl:
-            maxEnl = Enl
-        self.epsilon = r - self.lib.sqrt(2 * Enl + self.C0)
+        self.epsilon = r - self.lib.sqrt(2 * Enl.unsqueeze(1) + self.C0)
         return - self.lambda0 * self.epsilon * M * self.lib.sign(p) / (self.lib.sum(self.lib.abs(p)) + self.Num_eps)
 
     
@@ -61,19 +58,18 @@ class SAVSolver():
             - J0 * (self.model.K_op(qnext))
             + Bn_p
             - gn * rn
-            + (self.model.G(excitation_position) @ unow).squeeze()
+            + (self.model.G(excitation_position) * unow[:, None, None]).squeeze()
         )
 
         # Apply Sherman–Morrison inverse
         tmp = A0_inv * rhs
         correction_term = self.lib.dot(gn, tmp) if self.lib == 'numpy' else torch.einsum('... j, ... j -> ...', gn, tmp)
-        correction = (self.dt / 4.0) * A0inv_g * correction_term / denom
+        correction = (self.dt / 4.0) * A0inv_g * correction_term.unsqueeze(1) / denom.unsqueeze(1)
         pnext = (1 / M) * (tmp - correction)
 
         rnext_term_ = M * (pnext + plast) / 2
         rnext_term = self.lib.dot(gn, rnext_term_) if self.lib == 'numpy' else torch.einsum('... j, ... j -> ...', gn, rnext_term_)
-        rnext = rn + self.dt * rnext_term
-
+        rnext = rn + self.dt * rnext_term.unsqueeze(1)
         return qnext, pnext, rnext
 
 

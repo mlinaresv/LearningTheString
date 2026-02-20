@@ -16,6 +16,7 @@
 # Pycache folder.
 __pycache__/*
 sav_string/__pycache__/*
+sav_string/runs/*
 
 # Data files.
 *.dat

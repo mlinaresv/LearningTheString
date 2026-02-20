@@ -1,5 +1,7 @@
 import os
+import time
 import torch
+from tqdm import tqdm
 from datetime import datetime
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -11,7 +13,7 @@ from sav_string.sav_solver import SAVSolver
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
 
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
+    val_loader = None #DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
 
     return train_loader, val_loader
 
@@ -28,8 +30,6 @@ def train(
         device: str = "cpu",
         log_each_n_epochs: int = 10
     ):
-
-    torch.autograd.set_detect_anomaly(True)
 
     # Define the numerical solver.
     solver = SAVSolver(model, sr=sr, lib='torch')
@@ -54,16 +54,14 @@ def train(
         model.train()
         running_loss = 0.0
 
-        for x_batch, y_batch in train_loader:
+        for x_batch, y_batch in tqdm(train_loader):
             # Initialize each of the variables for the SAV algorithm mixed with the training.
-            q, p, u, exc_pos = x_batch[0], x_batch[1], x_batch[2], x_batch[3]
+            q, p, u, exc_pos = [t.to(device) for t in x_batch]
 
-            if q.ndim == 3:
-                # Estimate the auxiliar variable by the midpoint. 
-                r = (q[:, 0] + q[:, 1]) / 2
-                q = q[:, -1, :]
-            else:
-                r = q
+            # Estimate the auxiliar variable by the midpoint. 
+            r = (q[:, 0] + q[:, 1]) / 2
+            q = q[:, -1, :]
+            
             # Define the ground truth (i.e. the state at time t+1).
             state_n_1 = y_batch 
             state_n_1 = state_n_1.to(device)
@@ -73,13 +71,13 @@ def train(
             # Compute the next state.
             qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
             preds = torch.concat((qnext, pnext), axis=-1)
-            loss = criterion(preds, state_n_1)
+            loss = (criterion(preds, state_n_1)) / (solver.dt**2)
 
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item() * state_n_1.size(0)
-
+            
 
         epoch_loss = running_loss / len(train_loader.dataset)
 

@@ -64,7 +64,7 @@ class PHNNString(nn.Module):
     
     def G(self, excitation_position):
         batch_size = excitation_position.shape[0]
-        G_val = torch.zeros((batch_size, self.N, 1))
+        G_val = torch.zeros((batch_size, self.N, 1), device=excitation_position.device)
         positions = excitation_position.long().squeeze()
         G_val[torch.arange(batch_size), positions, 0] = 1
         return G_val 
