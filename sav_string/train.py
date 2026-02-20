@@ -1,6 +1,6 @@
 import os
 import torch
-import datetime
+from datetime import datetime
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
@@ -29,8 +29,10 @@ def train(
         log_each_n_epochs: int = 10
     ):
 
+    torch.autograd.set_detect_anomaly(True)
+
     # Define the numerical solver.
-    solver = SAVSolver(model, sr=sr)
+    solver = SAVSolver(model, sr=sr, lib='torch')
 
     # Create the dataloaders.
     train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size)
@@ -53,12 +55,13 @@ def train(
         running_loss = 0.0
 
         for x_batch, y_batch in train_loader:
-            
             # Initialize each of the variables for the SAV algorithm mixed with the training.
-            q, p, u, exc_pos = x_batch[..., 0], x_batch[..., 1], x_batch[..., 2], x_batch[..., 3]
-            if q.ndim == 2:
+            q, p, u, exc_pos = x_batch[0], x_batch[1], x_batch[2], x_batch[3]
+
+            if q.ndim == 3:
                 # Estimate the auxiliar variable by the midpoint. 
-                r = (q[0] + q[1]) / 2
+                r = (q[:, 0] + q[:, 1]) / 2
+                q = q[:, -1, :]
             else:
                 r = q
             # Define the ground truth (i.e. the state at time t+1).

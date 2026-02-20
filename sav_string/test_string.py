@@ -3,7 +3,7 @@ import numpy as np
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.fd_string_model import String
 from sav_string.sav_solver import SAVSolver
-from sav_string.tools import listen_to_a_trajectory, generate_video_from_trajectory
+from sav_string.utils.string import listen_to_a_trajectory, generate_video_from_trajectory
 
 
 # Define the type of guitar string.
@@ -36,6 +36,7 @@ if __name__ == '__main__':
     # Define your model.
     model = String(sr=sr, **DEFAULT_STRING_PARAMS)
     print("N =", model.N)
+    print("h =", model.h)
 
     # Define your numerical solver.
     solver = SAVSolver(model, sr=sr)

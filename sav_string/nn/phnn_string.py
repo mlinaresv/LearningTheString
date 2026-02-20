@@ -5,14 +5,17 @@ from sav_string.nn.upper_triangular_net import UpperTriangularNet
 
 class PHNNString(nn.Module):
 
-    def __inti__(self, N, h, hidden_dim):
+    def __init__(self, N, h, hidden_dim):
 
-        # Define the own attributes. 
+        super().__init__() 
+        # Define the own attributes.
         self.N = N
         self.h = h
+        
         self.rhol = nn.Parameter(torch.tensor(1.0))
         self.Rmid_ = nn.Parameter(torch.tensor(0.0))
         self.Rsv_ = nn.Parameter(torch.tensor(0.0))
+        self.build_matrices()
 
         # Define the network for the nonlinear part. 
         self.Enl_Ut = UpperTriangularNet(input_dim=self.N,
@@ -28,22 +31,24 @@ class PHNNString(nn.Module):
 
 
     def build_matrices(self):
-        self.J0 = 1 / self.h
-        self.M = self.h / torch.exp(self.rhol)
-        self.Rmid = self.R_mid / self.h
+        J0 = 1 / self.h
+        M = self.h / torch.exp(self.rhol)
+        Rmid = self.Rmid_ / self.h
+        return J0, M, Rmid
 
 
     def Enl(self, q):
-        Lq = self.Enl_Ut(q) @ q
-        return 0.5 * Lq.transpose(-1, -2) @ Lq
+        Lq = torch.einsum('... i j, ... j -> ... i', self.Enl_Ut(q), q)
+        Enl = torch.einsum('... j, ... j -> ...', Lq, Lq)
+        return 0.5 * Enl
     
     def Fnl(self, q):
-        nl_energy = self.Enl(q).sum()
-        grad = torch.autograd.grad(nl_energy, q)[0]
-        return grad
+        y, vjp_fn = torch.func.vjp(self.Enl, q)
+        fnl = vjp_fn(torch.ones_like(y))[0]
+        return fnl
     
     def K_op(self, q):
-        return self.El_Ut @ q
+        return torch.einsum('... i j, ... j -> ... i', self.El_Ut(q), q)
     
     def d2xq_op(self, q):
         d2xq = torch.zeros(self.N)
@@ -58,9 +63,11 @@ class PHNNString(nn.Module):
         return (self.Rsv_ * d2xq) / self.h
     
     def G(self, excitation_position):
-        G_val = torch.zeros((self.N, 1))
-        G_val[excitation_position, 0] = 1
-        return G_val
+        batch_size = excitation_position.shape[0]
+        G_val = torch.zeros((batch_size, self.N, 1))
+        positions = excitation_position.long().squeeze()
+        G_val[torch.arange(batch_size), positions, 0] = 1
+        return G_val 
 
 
     
