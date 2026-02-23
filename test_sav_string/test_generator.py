@@ -23,5 +23,8 @@ if __name__ == '__main__':
         pluck_position_interval=[0.1, 0.9],
         pluck_duration_interval=[0.5, 1.5],
         pluck_amplitude_interval=[5, 15],
-        duration=2
+        duration=2,
+        n_jobs=8,
+        save_directory='/data2/anasynth_nonbp/linares/LearningTheString',
+        filename='string_dataset'
     )
