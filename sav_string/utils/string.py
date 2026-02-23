@@ -41,27 +41,11 @@ def listen_to_a_trajectory(p_trajectory, sr, filename):
     write(f"{filename}.wav", sr, scaled)
 
 
-def unzip_and_concatenate(data):
-    # Unzip the list of tuples.
-    p_list, q_list, u_list, exc_list = zip(*data)
-
-    # Stack alon new batch dimension.
-    p = np.stack(p_list, axis=0).astype(np.float32)
-    q = np.stack(q_list, axis=0).astype(np.float32)
-    u = np.stack(u_list, axis=0).astype(np.float32)
-    exc = np.array(exc_list, dtype=np.float32).reshape(-1, 1)
-
-    # Create a concatenated state.
-    state = np.concatenate([p, q, u], axis=-1)
-
-    return state, exc
-
-
-def save_as_hdf5(state, exc, filename):
+def save_as_hdf5(state, exc, directory, filename):
     # Create the directory to save the data
-    os.makedirs('./string_dataset/data', exist_ok=True)
+    os.makedirs(directory, exist_ok=True)
 
-    with h5py.File(f"./string_dataset/data/{filename}.h5", "w") as f:
+    with h5py.File(f"{directory}/{filename}.h5", "w") as f:
         f.create_dataset(
             "state",
             data=state,

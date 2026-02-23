@@ -5,12 +5,12 @@ sys.path.append('/u/anasynth/linares/LearningTheString')
 from torch.utils.data import Dataset
 from sav_string.utils.string import save_as_hdf5
 
-def create_train_validation_dataset(filename, ratio=0.8):
+def create_train_validation_dataset(directory, filename, ratio=0.8):
     assert filename.endswith('.h5')
-    with h5py.File(f"{filename}", "r") as f:
+    with h5py.File(f"{directory}/{filename}", "r") as f:
 
         # Load and split the states.
-        dset = f["state"]
+        dset = f["states"]
         N, _, _ = dset.shape
         
         split_N = int(ratio * N)
@@ -26,10 +26,10 @@ def create_train_validation_dataset(filename, ratio=0.8):
         # Save the training string dataset.
         print('Saving the training dataset...')
         assert len(train_data) == len(train_exc)
-        save_as_hdf5(train_data, train_exc, 'train_string_dataset')
+        save_as_hdf5(train_data, train_exc, directory, 'train_string_dataset')
         print('Saving the validation dataset...')
         assert len(val_data) == len(val_exc)
-        save_as_hdf5(val_data, val_exc, 'validation_string_dataset')
+        save_as_hdf5(val_data, val_exc, directory, 'validation_string_dataset')
         print('Data splitted and saved!')
 
 
@@ -41,7 +41,7 @@ class H5TimeShiftDataset(Dataset):
             self.exc_data = torch.from_numpy(f['exc'][:]).float()
 
         self.N, self.T, self.D = self.state_data.shape
-        self.n = (self.D - 1) // 2
+        self.n = (self.D - 2) // 2
 
     def __len__(self):
         return self.N * (self.T - 1)
@@ -50,15 +50,11 @@ class H5TimeShiftDataset(Dataset):
         n_idx = idx // (self.T - 1)
         t_idx = idx % (self.T - 1)
 
-        if t_idx != 0:
-            q = self.state_data[n_idx, t_idx-1:t_idx+1, :self.n]
-        else:
-            q = self.state_data[n_idx, t_idx, :self.n]
-            q = torch.stack([torch.zeros_like(q), q], dim=0)
-
-        p = self.state_data[n_idx, t_idx, self.n:-1]
+        q = self.state_data[n_idx, t_idx, :self.n]
+        p = self.state_data[n_idx, t_idx, self.n:self.n * 2]
+        r = self.state_data[n_idx, t_idx, -2]
         u = self.state_data[n_idx, t_idx, -1]
         exc_position = self.exc_data[n_idx]
-        y = self.state_data[n_idx, t_idx + 1, :-1]
+        y = self.state_data[n_idx, t_idx + 1, :-2]
 
-        return (q, p, u, exc_position), y
+        return (q, p, r, u, exc_position), y

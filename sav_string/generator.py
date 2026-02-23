@@ -1,5 +1,6 @@
 import os
 import sys
+import h5py
 import random
 sys.path.append('/u/anasynth/linares/LearningTheString')
 import numpy as np
@@ -8,12 +9,11 @@ from joblib import delayed
 from sav_string.fd_string_model import String
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory, unzip_and_concatenate, save_as_hdf5
-from sav_string.utils.joblib import ParallelWithLogger, joblib_tqdm
+from sav_string.utils.joblib import ParallelWithLogger, joblib_tqdm, Parallel
 
 
 def generate_one_trajectory(
-        model,
-        solver, 
+        sr,
         initial_position_type, 
         amplitude_initial_position,
         control_type,
@@ -21,8 +21,16 @@ def generate_one_trajectory(
         pluck_duration_interval,
         pluck_amplitude_interval,
         duration,
-        trajectory_index
+        trajectory_index,
+        string_parameters
         ):
+
+    # Load the guitar string.
+    model = String(sr=sr, **string_parameters)
+    print("N =", model.N)
+
+    # Initialize the solver.
+    solver = SAVSolver(model, sr=sr)
     
     # Sample a choice of excitation position, duration and amplitude.
     pluck_position = int(random.uniform(a=pluck_position_interval[0], b=pluck_position_interval[1]) * model.N)
@@ -51,7 +59,7 @@ def generate_one_trajectory(
             return np.array([force]).reshape(1, model.Nu)
         
     # Integrate the trajectory.
-    p_trajectory, q_trajectory = solver.integrate(
+    p_trajectory, q_trajectory, r_trajectory = solver.integrate(
         qlast0=q0,
         qnext0=q0,
         p0=p0,
@@ -71,7 +79,7 @@ def generate_one_trajectory(
                            sr=solver.sr, 
                            filename=f'string_dataset/audio/trajectory_{trajectory_index}')
 
-    return p_trajectory, q_trajectory, u_trajectory, pluck_position
+    return trajectory_index, q_trajectory, p_trajectory, r_trajectory, u_trajectory, pluck_position
 
 
 def generate_string_database(
@@ -84,35 +92,57 @@ def generate_string_database(
         pluck_position_interval: int,
         pluck_duration_interval: float,
         pluck_amplitude_interval: float,
-        duration: float
+        duration: float,
+        n_jobs: int,
+        save_directory: str,
+        filename: str
 ):
 
-    # Load the guitar string.
-    model = String(sr=sr, **string_parameters)
-    print("N =", model.N)
-
     # Define the numerical solver.
-    solver = SAVSolver(model, sr=sr)
+    model = String(sr=sr, **string_parameters)
+    dt = 1 / sr
+    t = np.arange(int(duration / dt) + 1) * dt
+
+    # Create the HDF5 file and dataset first.
+    with h5py.File(f"{save_directory}/{filename}.h5", "w") as f:
+        states = f.create_dataset(
+            "states",
+            shape=(number_of_trajectories, len(t), 2 * model.N + 2),
+            dtype=np.float32,
+            chunks=(1, len(t), 2 * model.N + 2)
+        )
+        exc = f.create_dataset(
+            "exc", 
+            shape=(number_of_trajectories, 1),
+            dtype=np.float32,
+            chunks=(1, 1))
 
     indices = [i for i in range(number_of_trajectories)]
-    with joblib_tqdm(tqdm(desc="Generating data...", total=number_of_trajectories)) as pc:
-        with ParallelWithLogger(n_jobs=8) as parallel:
-            result = parallel(
-                delayed(generate_one_trajectory)(**dict(
-                    model=model,
-                    solver=solver,
-                    initial_position_type=initial_position_type,
-                    amplitude_initial_position=amplitude_initial_position,
-                    control_type=control_type,
-                    pluck_position_interval=pluck_position_interval,
-                    pluck_duration_interval=pluck_duration_interval,
-                    pluck_amplitude_interval=pluck_amplitude_interval,
-                    duration=duration,
-                    trajectory_index=index
-                ))
-                for index in indices
-            )
+    print('Generating and allocating at the same time!')
+    with h5py.File(f"{save_directory}/{filename}.h5", "r+") as f:
+        states = f["states"]
+        exc = f["exc"]
 
-    state, exc = unzip_and_concatenate(result)
-    save_as_hdf5(state, exc)
+        results = Parallel(n_jobs=n_jobs, return_as="generator")(
+            delayed(generate_one_trajectory)(**dict(
+                sr=sr,
+                initial_position_type=initial_position_type,
+                amplitude_initial_position=amplitude_initial_position,
+                control_type=control_type,
+                pluck_position_interval=pluck_position_interval,
+                pluck_duration_interval=pluck_duration_interval,
+                pluck_amplitude_interval=pluck_amplitude_interval,
+                duration=duration,
+                trajectory_index=index,
+                string_parameters=string_parameters
+            ))
+            for index in indices
+        )
+
+        print('Allocating trajectories...')
+        for i, q, p, r, u, exc_pos in results:
+            states[i] = np.concatenate([q, p, r, u], axis=-1).astype(np.float32)
+            exc[i] = exc_pos
+
+    print('Trajectories generated and saved!')
     

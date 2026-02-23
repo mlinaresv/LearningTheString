@@ -13,7 +13,7 @@ from sav_string.sav_solver import SAVSolver
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
 
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-    val_loader = None #DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
 
     return train_loader, val_loader
 
@@ -51,16 +51,14 @@ def train(
 
     for epoch in range(1, epochs + 1):
 
+        # Prepare setting for training.
         model.train()
-        running_loss = 0.0
+        trainin_running_loss = 0.0
 
-        for x_batch, y_batch in tqdm(train_loader):
+        # Training loop.
+        for i, (x_batch, y_batch) in enumerate(train_loader):
             # Initialize each of the variables for the SAV algorithm mixed with the training.
-            q, p, u, exc_pos = [t.to(device) for t in x_batch]
-
-            # Estimate the auxiliar variable by the midpoint. 
-            r = (q[:, 0] + q[:, 1]) / 2
-            q = q[:, -1, :]
+            q, p, r, u, exc_pos = [t.to(device) for t in x_batch]
             
             # Define the ground truth (i.e. the state at time t+1).
             state_n_1 = y_batch 
@@ -76,15 +74,38 @@ def train(
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item() * state_n_1.size(0)
+            trainin_running_loss += loss.item() * state_n_1.size(0)
+
+            # Log every 10 epochs
+            if i % log_each_n_epochs == 0:
+                print(f"Epoch [{epoch}/{epochs}] - Training Loss: {loss:.6f}")
+                writer.add_scalar("Loss/Train", loss, epoch * i)
+
+        # Prepare setting for validation.
+        model.eval()
+        validation_running_loss = 0.0
+
+        # Validation loop.
+        for x_batch_val, y_batch_val in val_loader:
+            q_val, p_val, r_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
+
+            # Define the validation groung truth (i.e. the state at time t+1)
+            state_n_1_val = y_batch_val
+            state_n_1_val = state_n_1_val.to(device)
+
+            # Compute the next state.
+            qnext_val, pnext_val,  = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
+            preds_val = torch.concate((qnext_val, pnext_val), axis=-1)
+            loss_val = (criterion(preds_val, state_n_1_val)) / (solver.dt**2)
+
+            validation_running_loss += loss_val.item() * state_n_1_val.size(0)
             
+        # Total training loss per epoch.
+        epoch_loss = trainin_running_loss / len(train_loader.dataset)
+        # Total validation loss.
+        validation_loss = validation_running_loss / len(val_loader.dataset)
+        writer.add_scalar("Loss/Validation", validation_loss, epoch)
 
-        epoch_loss = running_loss / len(train_loader.dataset)
-
-        # Log every 10 epochs
-        if epoch % log_each_n_epochs == 0:
-            print(f"Epoch [{epoch}/{epochs}] - Training Loss: {epoch_loss:.6f}")
-            writer.add_scalar("Loss/Train", epoch_loss, epoch)
 
 
     writer.close()

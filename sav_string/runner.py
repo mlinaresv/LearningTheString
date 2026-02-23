@@ -36,5 +36,5 @@ train(
     lr=1e-3,
     epochs=5000,
     device=device,
-    log_each_n_epochs=10
+    log_each_n_epochs=25
 )
