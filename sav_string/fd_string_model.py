@@ -104,21 +104,22 @@ class String:
     
 
     def Ek(self, p):
-        return 0.5 * p.dot(self.M * p)
+        _, M, _ = self.build_matrices()
+        return 0.5 * np.einsum('... j, ... j -> ...', p, M * p)
     
 
     def Ep(self, q):
-        return 0.5 * q.dot(self.K_op(q))
+        return 0.5 * np.einsum('... j, ... j -> ...', q, self.K_op(q))
     
 
     def Enl(self, q):
         """ Nonlinear energy operator Eq. (5c). """
-        dxq = np.zeros(self.N + 1)
-        dxq[-1] = 0
-        dxq[:-1] = q
-        dxq[1:] -= q
+        dxq = np.zeros((*q.shape[:-1], self.N + 1))
+        dxq[..., -1] = 0
+        dxq[..., :-1] = q
+        dxq[..., 1:] -= q
         dxq /= self.h
-        return self.EnlGeomConst * np.sum((dxq)**4)
+        return self.EnlGeomConst * np.sum((dxq)**4, axis=-1)
     
 
     def Fnl(self, q):

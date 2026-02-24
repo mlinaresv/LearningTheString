@@ -1,5 +1,7 @@
 import sys
+import random
 import numpy as np
+import matplotlib.pyplot as plt
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.fd_string_model import String
 from sav_string.sav_solver import SAVSolver
@@ -63,16 +65,28 @@ if __name__ == '__main__':
             return np.array([force]).reshape(1, model.Nu)
             
     # Integrate the trajectory.
-    p_trajectory, q_trajectory = solver.integrate(
+    pluck_position_interval=[0.1, 0.9]
+    pluck_position = int(random.uniform(a=pluck_position_interval[0], b=pluck_position_interval[1]) * model.N)
+
+    p_trajectory, q_trajectory, r_trajectory = solver.integrate(
         qlast0=q0,
         qnext0=q0,
         p0=p0,
         u_func=u_func,
-        duration=duration
+        duration=duration,
+        excitation_position=pluck_position
     )
 
     # Define the output of this code.
     if type_of_data_returned == 'video':
         generate_video_from_trajectory(p_trajectory)
     elif type_of_data_returned == 'audio':
-        listen_to_a_trajectory(p_trajectory, sr)
+        listen_to_a_trajectory(p_trajectory, sr, filename='test_nonlinear_quotient')
+
+    # Plot the nonlinear energy quotient.
+    Ek, Ep, Enl = model.Ek(p_trajectory), model.Ep(q_trajectory), model.Enl(q_trajectory)
+    quotient = Enl / (Ek + Ep + Enl + 1e-12)
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(quotient)
+    fig.savefig('test_nonlinear_quotient.pdf')
+    

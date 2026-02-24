@@ -30,7 +30,7 @@ class SAVSolver():
     def g_mod(self, q, p, r, M):
         Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q).unsqueeze(1)
         self.epsilon = r - self.lib.sqrt(2 * Enl + self.C0)
-        return - self.lambda0 * self.epsilon * M * self.lib.sign(p) / (self.lib.sum(self.lib.abs(p)) + self.Num_eps)
+        return - self.lambda0 * self.epsilon * self.lib.sign(p) / (M * (self.lib.sum(self.lib.abs(p)) + self.Num_eps))
 
     
     def time_step(self, qlast, plast, rn, unow, excitation_position):
