@@ -21,7 +21,7 @@ def get_energy_quotients_from_dataset(
         print(f'States loaded with shape: {states.shape}')
     
     # Define the different variables involved in the string simulation.
-    q, p, r = states[..., :model.N], states[..., model.N: model.N * 2], states[..., -2]
+    q, p, r = states[..., :model.N], states[..., model.N: model.N * 2], states[..., -2][:, :, None]
 
     # Get the quotients of interest.
     nl_quotient = get_nonlinear_energy_quotient(model, q, p)

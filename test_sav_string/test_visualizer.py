@@ -11,30 +11,14 @@ from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
 from sav_string.visualizer import get_nonlinear_energy_quotient, get_drift_quotient
 
-# Define the type of guitar string.
-DEFAULT_STRING_PARAMS = {
-    "l0": 0.65,
-    "Ra": 5.97e-4,
-    "rho": 7850,
-    "E": 4.2e8,
-    "T": 90.48,
-    "eta0": 0.9,
-    "eta1": 2e-4
-}
-
 # Define the simulation parameters.
 sr = 88200
-initial_position_type = 'zero'
-amplitude_initial_position = 8e-3
-control_type = 'pluck'
-pluck_duration = 1e-3
-pluck_amplitude = 160
+pluck_duration = 18e-3
 duration = 2
-type_of_data_returned = 'audio'
 
 if __name__ == '__main__':
     
-    pluck_amplitude_interval = np.linspace(10, 20000, 2)
+    pluck_amplitude_interval = [0.1, 1, 5]
 
     fig, ax = plt.subplots(1, 3, figsize=(30, 10))
     for pluck_amplitude in tqdm(pluck_amplitude_interval):
@@ -43,7 +27,7 @@ if __name__ == '__main__':
         timestep = 1 / sr
 
         # Define your model.
-        model = String(sr=sr, **DEFAULT_STRING_PARAMS)
+        model = String(sr=sr)
         print("N =", model.N)
         print("h =", model.h)
 
@@ -75,7 +59,7 @@ if __name__ == '__main__':
         )
 
         # Save the audio.
-        #listen_to_a_trajectory(p_trajectory, sr, filename=f'./nonlinearities_control/string_trajectory_{pluck_amplitude}_amplitude')
+        listen_to_a_trajectory(p_trajectory, sr, filename=f'string_trajectory_{pluck_amplitude}_amplitude')
 
         # Compute the nonlinear quotient.
         energy_quotient = get_nonlinear_energy_quotient(model, q_trajectory, p_trajectory)
@@ -100,7 +84,7 @@ if __name__ == '__main__':
     ax[0].legend()
     ax[1].legend()
     ax[2].legend()
-    fig.savefig('test_visualizations.pdf')
+    fig.savefig(f'test_visualizations_pluck_duration_{pluck_duration}.pdf')
 
 
     

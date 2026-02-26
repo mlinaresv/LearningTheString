@@ -4,12 +4,12 @@ import h5py
 import random
 sys.path.append('/u/anasynth/linares/LearningTheString')
 import numpy as np
-from tqdm import tqdm
 from joblib import delayed
-from sav_string.fd_string_model import String
 from sav_string.sav_solver import SAVSolver
-from sav_string.utils.string import listen_to_a_trajectory, unzip_and_concatenate, save_as_hdf5
-from sav_string.utils.joblib import ParallelWithLogger, joblib_tqdm, Parallel
+from sav_string.utils.joblib import Parallel
+from sav_string.fd_string_model import String
+from sav_string.utils.string import listen_to_a_trajectory
+
 
 
 def generate_one_trajectory(
@@ -22,11 +22,11 @@ def generate_one_trajectory(
         pluck_amplitude_interval,
         duration,
         trajectory_index,
-        string_parameters
+        audio_directory
         ):
 
     # Load the guitar string.
-    model = String(sr=sr, **string_parameters)
+    model = String(sr=sr)
     print("N =", model.N)
 
     # Initialize the solver.
@@ -74,16 +74,15 @@ def generate_one_trajectory(
     u_trajectory = np.concatenate([u_func(t_i) for t_i in t], axis=0)
     assert len(u_trajectory) == len(q_trajectory)
 
-    os.makedirs('./string_dataset/audio', exist_ok=True)
+    os.makedirs(f'./{audio_directory}/audio', exist_ok=True)
     listen_to_a_trajectory(p_trajectory=p_trajectory, 
                            sr=solver.sr, 
-                           filename=f'string_dataset/audio/trajectory_{trajectory_index}')
+                           filename=f'{audio_directory}/audio/trajectory_{trajectory_index}')
 
     return trajectory_index, q_trajectory, p_trajectory, r_trajectory, u_trajectory, pluck_position
 
 
 def generate_string_database(
-        string_parameters: dict,
         number_of_trajectories: int,
         sr: int,
         initial_position_type: str,
@@ -95,11 +94,12 @@ def generate_string_database(
         duration: float,
         n_jobs: int,
         save_directory: str,
-        filename: str
+        filename: str,
+        audio_directory: str
 ):
 
     # Define the numerical solver.
-    model = String(sr=sr, **string_parameters)
+    model = String(sr=sr)
     dt = 1 / sr
     t = np.arange(int(duration / dt) + 1) * dt
 
@@ -134,7 +134,7 @@ def generate_string_database(
                 pluck_amplitude_interval=pluck_amplitude_interval,
                 duration=duration,
                 trajectory_index=index,
-                string_parameters=string_parameters
+                audio_directory=audio_directory
             ))
             for index in indices
         )

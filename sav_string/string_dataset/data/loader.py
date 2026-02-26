@@ -6,8 +6,7 @@ from torch.utils.data import Dataset
 from sav_string.utils.string import save_as_hdf5
 
 def create_train_validation_dataset(directory, filename, ratio=0.8):
-    assert filename.endswith('.h5')
-    with h5py.File(f"{directory}/{filename}", "r") as f:
+    with h5py.File(f"{directory}/{filename}.h5", "r") as f:
 
         # Load and split the states.
         dset = f["states"]
@@ -26,10 +25,10 @@ def create_train_validation_dataset(directory, filename, ratio=0.8):
         # Save the training string dataset.
         print('Saving the training dataset...')
         assert len(train_data) == len(train_exc)
-        save_as_hdf5(train_data, train_exc, directory, 'train_string_dataset')
+        save_as_hdf5(train_data, train_exc, directory, f'train_{filename}')
         print('Saving the validation dataset...')
         assert len(val_data) == len(val_exc)
-        save_as_hdf5(val_data, val_exc, directory, 'validation_string_dataset')
+        save_as_hdf5(val_data, val_exc, directory, f'validation_{filename}')
         print('Data splitted and saved!')
 
 

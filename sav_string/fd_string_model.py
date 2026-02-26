@@ -7,7 +7,7 @@ DEFAULT_STRING_PARAMS = {
     "E": 2e11,
     "T": 60,
     "eta0": 0.9,
-    "eta1": 4e-2
+    "eta1": 4e-4
 }
 
 class String:
