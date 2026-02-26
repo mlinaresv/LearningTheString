@@ -8,12 +8,12 @@ os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 # Define the non-linear string we are modeling.
 est_hamiltonian = None
-string = NonLinearString(L=0.65, R=5.97e-4, rho=7850, T=90.48, E=2.1e8, eta0=0.9, eta1=2e-4, num_spatial_points=100,
+string = NonLinearString(L=1.1, R=4e-4, rho=8000, T=60, E=2.1e8, eta0=0.9, eta1=4e-4, num_spatial_points=100,
                          est_hamiltonian=est_hamiltonian, device='cpu')
-num_trajectories = 10
+num_trajectories = 1
 x0 = np.zeros((2 * string.num_pi + string.num_strain))
 sampling_rate = 88.2e3
-duration = 1
+duration = 2
 
 # Define an external control that will represent a pluck in the string.
 def string_pluck_generator(f_amp: float = 10, 

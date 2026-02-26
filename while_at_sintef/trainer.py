@@ -7,7 +7,6 @@ from dataset import TrajectoryDataset
 from torch.utils.data import DataLoader
 from non_linear_string import NonLinearString
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -43,20 +42,18 @@ def one_step_rk4(f, h: float, x, u=None):
 sampling_rate = 88.2e3
 timestep = 1 / sampling_rate
 #M = len(dataset) // batch_size + 1 if len(dataset) % batch_size != 0 else len(dataset) // batch_size
-model_title = 'PDE_HNN_10_traj'
+model_title = 'PDE_HNN_60_traj_baseline'
 print(f'Initializating training with time step :{timestep:.2e}!')
 
 
-final_training_loss, final_evaluation_loss = [], []
-for hidden_dim in [10, 50, 100, 500, 1000, 1500]:
+for hidden_dim in [100]:
     # Create the training algorithm.
     model = PDHNN(input_dim=2*num_pi+num_strain,
                   hidden_dim=hidden_dim,
-                  hidden_layers=1).to(device)
+                  hidden_layers=2).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=2, min_lr=1e-9, eps=1e-11)
     loss_function = torch.nn.MSELoss()
-    writer = SummaryWriter(f'runs/20_trajectories_{hidden_dim}_units')
+    writer = SummaryWriter(f'runs/baseline')
 
     # Define the time derivative function.
     def time_derivative(x, u):
@@ -117,7 +114,6 @@ for hidden_dim in [10, 50, 100, 500, 1000, 1500]:
         mean_evaluation_loss = np.mean(evaluation_batch_loss)
 
         # Apply the learning scheduler on the evaluation loss.
-        lr_scheduler.step(mean_evaluation_loss)
         lr = optimizer.param_groups[0]['lr']
         # Write the training loss in the writer.
         writer.add_scalar('Train/Mean batch loss per epoch', mean_training_loss, epoch)
@@ -135,14 +131,6 @@ for hidden_dim in [10, 50, 100, 500, 1000, 1500]:
         if lr < 2e-9:
             torch.save(model, f'{model_title}_{hidden_dim}_units.pth')
             stop = True
-    
-    final_training_loss.append(mean_training_loss)
-    final_evaluation_loss.append(mean_evaluation_loss)
 
-# Create a plot graph with the ablation study results.
-fig, ax = plt.subplots(1, 1)
-ax.plot(final_training_loss, label='Training loss')
-ax.plot(final_evaluation_loss, label='Evaluation loss')
-ax.set_yscale('log')
-ax.legend()
-fig.savefig('ablation_study_hidden_units.pdf')
+        if epoch > 5e3:
+            stop = True

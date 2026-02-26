@@ -1,5 +1,6 @@
 import torch
 import einops
+import gc
 import numpy as np
 from tqdm import tqdm
 from scipy.sparse import diags_array
@@ -98,24 +99,47 @@ class NonLinearString:
         # Define the timestep and t-axis.
         dt = 1 / sampling_rate
         t_axis = np.arange(0, duration, dt)
+        traj_length = len(t_axis)
 
         # Generate the trajectory.
-        traj_length = t_axis.shape[0]
-        states = np.zeros((2, num_trajectories, traj_length, 2 * self.num_pi + self.num_strain))
+        state_dim = 2 * self.num_pi + self.num_strain
+        states = np.memmap(
+            "dataset_full.dat",
+            dtype=np.float32,
+            mode="w+",
+            shape=(2, num_trajectories, traj_length, state_dim)
+        )
+        
+        # Get the interconnection matrix.
+        S = self.spatial_discretized_matrix
+        inv_h = 1 / self.h
+
+        def x_dot(t, x, control):
+            return inv_h * (S @ self.hamiltonian_grad(x, h=self.h)) + control(t)
 
         for i in tqdm(range(num_trajectories)):
-            # Get the interconnection matrix.
-            S = self.spatial_discretized_matrix
             # Set a control for each trajectory.
             control = control_generator()
-            # Obtain the system's flows.
-            x_dot = lambda t, x: (1 / self.h) * (einops.einsum(S, self.hamiltonian_grad(x, h=self.h).flatten(), 'i j, ... j -> ... i') + control(t))
+
+            fun = lambda t, x: x_dot(t, x, control)
+
             # Generate the trajectory using scipy.
             out_ivp = solve_ivp(
-                fun=x_dot, t_span=(t_axis[0], t_axis[-1]), y0=x0, t_eval=t_axis, rtol=1e-10
+                fun=fun, 
+                t_span=(t_axis[0], t_axis[-1]), 
+                y0=x0, 
+                t_eval=t_axis, 
+                rtol=1e-10
             )
             states[0, i] = out_ivp["y"].T
             states[1, i] = control(t_axis)
+
+            # Free memory
+            del out_ivp
+            del control
+            gc.collect()  # force garbage collection
         
+        states.flush()
+        print(f"Dataset saved to dataset_full.dat with shape {states.shape}.")
         return states
     
