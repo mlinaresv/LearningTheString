@@ -1,40 +1,71 @@
 import os
 import sys
+import yaml
 import torch
+import random 
+import numpy as np
+from datetime import datetime
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.train import train, build_dataloaders
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
-from sav_string.string_dataset.data.loader import H5TimeShiftDataset
+from sav_string.utils.loader import H5TimeShiftDataset
 
-# Define the device.
-gpu_id = 0
-gpu_id = mgp.get_gpu_lock(gpu_device_id=gpu_id)
-os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f'Training initialized on GPU#{gpu_id}')
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+def main(config_path='test_configuration.yaml'):
+    # Load config file.
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Set seed.
+    set_seed(config["seed"])
+
+    # Define the device.
+    gpu_id = mgp.get_gpu_lock(gpu_device_id=config["gpu_id"])
+    os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f'Training initialized on GPU#{gpu_id}')
 
 
-# Define the datasets and dataloaders.
-print('--> Building the training and validation dataset...')
-train_dataset = H5TimeShiftDataset('/data2/anasynth_nonbp/linares/LearningTheString/train_string_dataset.h5')
-val_dataset = H5TimeShiftDataset('/data2/anasynth_nonbp/linares/LearningTheString/validation_string_dataset.h5')
+    # Define the datasets and dataloaders.
+    print('--> Building the training and validation dataset...')
+    train_dataset = H5TimeShiftDataset(config["data"]["training_dataset_path"])
+    val_dataset = H5TimeShiftDataset(config["data"]["validation_dataset_path"])
 
-# Define the PHNNString model.
-print('--> Defining the model...')
-N, h = 378, 0.0017150395778364118
-model = PHNNString(N=N, h=h, hidden_dim=100).to(device)
+    # Define the PHNNString model.
+    print('--> Defining the model...')
+    model = PHNNString(
+        N=config["model"]["N"], 
+        h=config["model"]["h"], 
+        hidden_dim=config["model"]["hidden_dim"]
+    ).to(device)
 
-# Train the model.
-train(
-    sr=88200,
-    model=model,
-    train_dataset=train_dataset,
-    val_dataset=val_dataset,
-    train_batch_size=128,
-    val_batch_size=1,
-    lr=1e-3,
-    epochs=5000,
-    device=device,
-    log_each_n_epochs=25
-)
+    # Determine the logging directory.
+    log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(f'./{log_dir}')
+    # Configuration file.
+    output_path = f'./{log_dir}/config.yaml'
+    with open(output_path, 'w') as f:
+        yaml.safe_dump(config, f)
+
+    # Train the model.
+    train(
+        sr=config["train"]["sampling_rate"],
+        model=model,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        train_batch_size=config["train"]["training_batch_size"],
+        val_batch_size=config["train"]["validation_batch_size"],
+        lr=config["train"]["learning_rate"],
+        epochs=config["train"]["epochs"],
+        device=device,
+        log_each_n_epochs=config["train"]["log_each_n_epochs"],
+        log_dir=log_dir
+    )
+
+if __name__ == '__main__':
+    main()

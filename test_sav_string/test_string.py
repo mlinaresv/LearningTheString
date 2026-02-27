@@ -24,7 +24,7 @@ if __name__ == '__main__':
     timestep = 1 / sr
 
     # Define your model.
-    model = String(sr=sr
+    model = String(sr=sr)
     print("N =", model.N)
     print("h =", model.h)
 

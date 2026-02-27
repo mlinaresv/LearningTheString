@@ -12,7 +12,7 @@ class PHNNString(nn.Module):
         self.N = N
         self.h = h
         
-        self.rhol = nn.Parameter(torch.tensor(1.0))
+        self.rhol = nn.Parameter(torch.tensor(0.0))
         self.Rmid_ = nn.Parameter(torch.tensor(0.0))
         self.Rsv_ = nn.Parameter(torch.tensor(0.0))
         self.build_matrices()
@@ -33,7 +33,7 @@ class PHNNString(nn.Module):
     def build_matrices(self):
         J0 = 1 / self.h
         M = self.h / torch.exp(self.rhol)
-        Rmid = self.Rmid_ / self.h
+        Rmid = torch.exp(self.Rmid_) / self.h
         return J0, M, Rmid
 
 
@@ -60,7 +60,7 @@ class PHNNString(nn.Module):
     
     def Rsv_op(self, v):
         d2xq = self.d2xq_op(v)
-        return (self.Rsv_ * d2xq) / self.h
+        return (torch.exp(self.Rsv_) * d2xq) / self.h
     
     def G(self, excitation_position):
         batch_size = excitation_position.shape[0]

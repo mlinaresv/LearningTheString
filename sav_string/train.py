@@ -1,12 +1,9 @@
 import os
-import time
+import yaml
 import torch
-from tqdm import tqdm
-from datetime import datetime
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from sav_string.nn.phnn_string import PHNNString
 from sav_string.sav_solver import SAVSolver
 
 
@@ -25,10 +22,12 @@ def train(
         val_dataset, 
         train_batch_size: int,
         val_batch_size: int,
+        log_dir: str,
         lr: float = 1e-3,
         epochs: int = 5000, 
         device: str = "cpu",
         log_each_n_epochs: int = 10
+        
     ):
 
     # Define the numerical solver.
@@ -46,7 +45,6 @@ def train(
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # TensorBoard
-    log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
     writer = SummaryWriter(log_dir=log_dir)
 
     for epoch in range(1, epochs + 1):
@@ -72,14 +70,29 @@ def train(
             loss = (criterion(preds, state_n_1)) / (solver.dt**2)
 
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
             optimizer.step()
 
             trainin_running_loss += loss.item() * state_n_1.size(0)
 
             # Log every 10 epochs
             if i % log_each_n_epochs == 0:
-                print(f"Epoch [{epoch}/{epochs}] - Training Loss: {loss:.6f}")
+                print(f"Epoch [{epoch}/{epochs}] - Training Loss: {loss:.6f} - Rhol: {torch.exp(model.rhol):.2e} - Rmid: {torch.exp(model.Rmid_):.2e} - Rsv: {torch.exp(model.Rsv_):.2e}")
                 writer.add_scalar("Loss/Train", loss, epoch * i)
+
+            total_norm = 0
+            for p in model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+
+            total_norm = total_norm ** 0.5
+            print("grad norm:", total_norm)
+            print("loss:", loss)
+
+            assert not torch.isnan(loss)
 
         # Prepare setting for validation.
         model.eval()

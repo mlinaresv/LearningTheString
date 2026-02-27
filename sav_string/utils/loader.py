@@ -51,7 +51,7 @@ class H5TimeShiftDataset(Dataset):
 
         q = self.state_data[n_idx, t_idx, :self.n]
         p = self.state_data[n_idx, t_idx, self.n:self.n * 2]
-        r = self.state_data[n_idx, t_idx, -2]
+        r = self.state_data[n_idx, t_idx, -2].unsqueeze(-1)
         u = self.state_data[n_idx, t_idx, -1]
         exc_position = self.exc_data[n_idx]
         y = self.state_data[n_idx, t_idx + 1, :-2]

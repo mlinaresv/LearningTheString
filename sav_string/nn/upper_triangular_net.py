@@ -45,6 +45,6 @@ class UpperTriangularNet(nn.Module):
         # Positive diagonal.
         L[:, self.diag_indices, self.diag_indices] = F.softplus(
             L[:, self.diag_indices, self.diag_indices]
-        )
+        ) + 1e-3
 
         return L
