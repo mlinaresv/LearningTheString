@@ -22,14 +22,14 @@ class SAVSolver():
 
     def g(self, q, J0):
         """ Compute the interconnection matrix for the auxiliary variable. """
-        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q).unsqueeze(1)
+        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q)
         Fnl = self.model.Fnl(q)
         return J0 * Fnl / (self.lib.sqrt(2 * Enl + self.C0 + self.Num_eps))
     
 
     def g_mod(self, q, p, r, M):
-        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q).unsqueeze(1)
-        self.epsilon = r - self.lib.sqrt(2 * Enl + self.C0)
+        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q)
+        self.epsilon = r - self.lib.sqrt(2 * Enl + self.C0 + self.Num_eps)
         return - self.lambda0 * self.epsilon * self.lib.sign(p) / (M * (self.lib.sum(self.lib.abs(p)) + self.Num_eps))
 
     
@@ -41,7 +41,7 @@ class SAVSolver():
         # Estimation of the auxiliary variable during training.model = String(sr=sr, **string_parameters)
         gn = self.g(qnext, J0) + self.g_mod((qnext + qlast) / 2, plast, rn, M)
         # Define an intermediate quantity
-        A0_inv = 2 * self.dt / (2 / M + Rmid * self.dt)
+        A0_inv = 2 * self.dt / ((2 / M + Rmid * self.dt) + self.Num_eps)
         A0inv_g = A0_inv * gn
         denom_term = self.lib.dot(gn, A0inv_g) if self.lib_str == 'numpy' else self.lib.einsum('... i, ... i -> ...', gn, A0inv_g)
         denom = 1.0 + (self.dt / 4.0) * denom_term
@@ -67,7 +67,7 @@ class SAVSolver():
         # Apply Sherman–Morrison inverse
         tmp = A0_inv * rhs
         correction_term = self.lib.dot(gn, tmp) if self.lib_str == 'numpy' else torch.einsum('... j, ... j -> ...', gn, tmp).unsqueeze(1)
-        correction = (self.dt / 4.0) * A0inv_g * correction_term / denom
+        correction = (self.dt / 4.0) * A0inv_g * correction_term / (denom + self.Num_eps)
         pnext = (1 / M) * (tmp - correction)
 
         rnext_term_ = M * (pnext + plast) / 2

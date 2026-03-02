@@ -26,8 +26,8 @@ def train(
         lr: float = 1e-3,
         epochs: int = 5000, 
         device: str = "cpu",
-        log_each_n_epochs: int = 10
-        
+        log_each_n_epochs: int = 10,
+        log_each_n_updates: int = 100        
     ):
 
     # Define the numerical solver.
@@ -68,32 +68,26 @@ def train(
             qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
             preds = torch.concat((qnext, pnext), axis=-1)
             loss = (criterion(preds, state_n_1)) / (solver.dt**2)
+            assert not torch.isnan(loss)
 
             loss.backward()
-
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
             optimizer.step()
 
             trainin_running_loss += loss.item() * state_n_1.size(0)
 
-            # Log every 10 epochs
-            if i % log_each_n_epochs == 0:
-                print(f"Epoch [{epoch}/{epochs}] - Training Loss: {loss:.6f} - Rhol: {torch.exp(model.rhol):.2e} - Rmid: {torch.exp(model.Rmid_):.2e} - Rsv: {torch.exp(model.Rsv_):.2e}")
-                writer.add_scalar("Loss/Train", loss, epoch * i)
-
-            total_norm = 0
-            for p in model.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-
-            total_norm = total_norm ** 0.5
-            print("grad norm:", total_norm)
-            print("loss:", loss)
-
-            assert not torch.isnan(loss)
-
+            # Log every n updates
+            if epoch % log_each_n_epochs == 0:
+                if i % log_each_n_updates == 0:
+                    writer.add_scalar("Loss/Train", loss, (epoch - 1) * len(train_loader) + i)
+                    torch.save({
+                        "epoch": epoch,
+                        "update": i,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": loss,
+                    }, f"./{log_dir}/checkpoint.pth")
+            
         # Prepare setting for validation.
         model.eval()
         validation_running_loss = 0.0
@@ -107,8 +101,8 @@ def train(
             state_n_1_val = state_n_1_val.to(device)
 
             # Compute the next state.
-            qnext_val, pnext_val,  = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
-            preds_val = torch.concate((qnext_val, pnext_val), axis=-1)
+            qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
+            preds_val = torch.concat((qnext_val, pnext_val), axis=-1)
             loss_val = (criterion(preds_val, state_n_1_val)) / (solver.dt**2)
 
             validation_running_loss += loss_val.item() * state_n_1_val.size(0)

@@ -33,15 +33,18 @@ def main(config_path='test_configuration.yaml'):
 
     # Define the datasets and dataloaders.
     print('--> Building the training and validation dataset...')
-    train_dataset = H5TimeShiftDataset(config["data"]["training_dataset_path"])
-    val_dataset = H5TimeShiftDataset(config["data"]["validation_dataset_path"])
+    train_dataset = H5TimeShiftDataset(config["data"]["training_dataset_path"], config["data"]["training_number_of_trajectories"])
+    val_dataset = H5TimeShiftDataset(config["data"]["validation_dataset_path"], config["data"]["validation_number_of_trajectories"])
 
     # Define the PHNNString model.
     print('--> Defining the model...')
     model = PHNNString(
         N=config["model"]["N"], 
         h=config["model"]["h"], 
-        hidden_dim=config["model"]["hidden_dim"]
+        hidden_dim=config["model"]["hidden_dim"],
+        learn_linear_energy=config["model"]["learn_linear_energy"],
+        learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
+        true_string_parameters=config["model"]["true_string_parameters"]
     ).to(device)
 
     # Determine the logging directory.
@@ -64,6 +67,7 @@ def main(config_path='test_configuration.yaml'):
         epochs=config["train"]["epochs"],
         device=device,
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
+        log_each_n_updates=config["train"]["log_each_n_updates"],
         log_dir=log_dir
     )
 

@@ -33,11 +33,11 @@ def create_train_validation_dataset(directory, filename, ratio=0.8):
 
 
 class H5TimeShiftDataset(Dataset):
-    def __init__(self, h5path):
+    def __init__(self, h5path, number_of_trajectories):
 
         with h5py.File(h5path, 'r') as f:
-            self.state_data = torch.from_numpy(f['state'][:]).float()
-            self.exc_data = torch.from_numpy(f['exc'][:]).float()
+            self.state_data = torch.from_numpy(f['state'][:][:number_of_trajectories]).float()
+            self.exc_data = torch.from_numpy(f['exc'][:][:number_of_trajectories]).float()
 
         self.N, self.T, self.D = self.state_data.shape
         self.n = (self.D - 2) // 2

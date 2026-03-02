@@ -1,6 +1,8 @@
 data:
   training_dataset_path: '/data2/anasynth_nonbp/linares/LearningTheString/train_non_linear_string_dataset.h5'
+  training_number_of_trajectories: 48
   validation_dataset_path: '/data2/anasynth_nonbp/linares/LearningTheString/validation_non_linear_string_dataset.h5'
+  validation_number_of_trajectories: 12
 
 gpu_id: 0
 
@@ -8,6 +10,9 @@ model:
   N: 202
   h: 0.005418719211822661
   hidden_dim: 100
+  learn_linear_energy: True
+  learn_nonlinear_energy: True
+  true_string_parameters: {"Ra": 4e-4, "E": 2e11, "T": 60}
 
 seed: 42
 
@@ -15,6 +20,7 @@ train:
   sampling_rate: 88200
   training_batch_size: 128
   validation_batch_size: 128
-  learning_rate: 0.00001
+  learning_rate: 0.001
   epochs: 5000
-  log_each_n_epochs: 25
+  log_each_n_epochs: 1
+  log_each_n_updates: 500
