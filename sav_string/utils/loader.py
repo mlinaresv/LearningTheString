@@ -1,8 +1,4 @@
-import sys
 import h5py
-import torch
-sys.path.append('/u/anasynth/linares/LearningTheString')
-from torch.utils.data import Dataset
 from sav_string.utils.string import save_as_hdf5
 
 def create_train_validation_dataset(directory, filename, ratio=0.8):
@@ -32,28 +28,4 @@ def create_train_validation_dataset(directory, filename, ratio=0.8):
         print('Data splitted and saved!')
 
 
-class H5TimeShiftDataset(Dataset):
-    def __init__(self, h5path, number_of_trajectories):
 
-        with h5py.File(h5path, 'r') as f:
-            self.state_data = torch.from_numpy(f['state'][:][:number_of_trajectories]).float()
-            self.exc_data = torch.from_numpy(f['exc'][:][:number_of_trajectories]).float()
-
-        self.N, self.T, self.D = self.state_data.shape
-        self.n = (self.D - 2) // 2
-
-    def __len__(self):
-        return self.N * (self.T - 1)
-
-    def __getitem__(self, idx):
-        n_idx = idx // (self.T - 1)
-        t_idx = idx % (self.T - 1)
-
-        q = self.state_data[n_idx, t_idx, :self.n]
-        p = self.state_data[n_idx, t_idx, self.n:self.n * 2]
-        r = self.state_data[n_idx, t_idx, -2].unsqueeze(-1)
-        u = self.state_data[n_idx, t_idx, -1]
-        exc_position = self.exc_data[n_idx]
-        y = self.state_data[n_idx, t_idx + 1, :-2]
-
-        return (q, p, r, u, exc_position), y

@@ -1,4 +1,5 @@
 import torch
+import types
 import numpy as np
 
 class SAVSolver():
@@ -76,16 +77,46 @@ class SAVSolver():
         return qnext, pnext, rnext
 
 
-    def integrate(self, qlast0, qnext0, p0, u_func, duration, excitation_position):
-        """ Integrates the dynamics using provided initial condition, input function and duration. """
+    def integrate(self, q0, p0, u_func, duration, excitation_position):
+
+        """
+        Integrates the dynamics using provided initial condition, input function and duration. 
+
+        Parameters
+        ----------
+        qlast0: np.ndarray or torch.tensor
+                The position q_{-1/2}.
+        qnext0: np.ndarray or torch.tensor
+                The position q_{+1/2}.
+        p0: np.ndarray or torch.tensor
+                The momentum p_0.
+        u_func: types.FunctionType or np.ndarray or torch.tensor.
+                If a function, it describes the control u(t) applied at each instance. If an 
+                array or tensor, the value of the control in each position corresponds to the
+                applied control for each time step.
+        duration: float.
+                The duration of the simulation.
+        excitation_position: int.
+                The position of the string at which we apply the string pluck.
+
+        Returns    
+        -------
+        tuple
+            (p_trajectory, q_trajectory, r_trajectory).
+                - p_trajectory (np.ndarray or torch.tensor): The momentum trajectory.
+                - q_trajectory (np.ndarray or torch.tensor): The position trajectory.
+                - r_trajectory (np.ndarray or torch.tensor): The scalar auxiliary variable.
+        """
+
         # Time vector.
         self.Nt = int(duration / self.dt)
         self.t = self.lib.arange(self.Nt) * self.dt
-        p_trajectory, q_trajectory = self.lib.zeros((self.Nt + 1, qlast0.shape[0])), self.lib.zeros((self.Nt + 1, qlast0.shape[0]))
+        p_trajectory, q_trajectory = self.lib.zeros((self.Nt + 1, q0.shape[-1])), self.lib.zeros((self.Nt + 1, q0.shape[-1]))
         r_trajectory = self.lib.zeros((self.Nt + 1, 1))
 
         # State initialization.
-        rnow = self.lib.sqrt(2 * self.model.Enl((qlast0 + qnext0) / 2) + self.C0)
+        qnext0 = q0
+        rnow = self.lib.sqrt(2 * self.model.Enl((q0 + qnext0) / 2) + self.C0)
         qlast = qnext0
         plast = p0
         p_trajectory[0, :] = plast
@@ -94,7 +125,10 @@ class SAVSolver():
 
         # Main loop.
         for i in range(self.Nt):
-            qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_func((i + 0.5) * self.dt), excitation_position=excitation_position)
+            # Define the control at the time step.
+            
+            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[i].unsqueeze(0)
+            qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
             qlast = qnext
             plast = pnext
             rnow = rnext  

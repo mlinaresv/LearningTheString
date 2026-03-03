@@ -60,7 +60,7 @@ class PHNNString(nn.Module):
     def Enl(self, q):
         if self.learn_nonlinear_energy:
             Lq = torch.einsum('... i j, ... j -> ... i', self.Enl_Ut(q), q)
-            Enl = torch.einsum('... j, ... j -> ...', Lq, Lq)
+            Enl = torch.einsum('... j, ... j -> ...', Lq, Lq).unsqueeze(-1)
             return 0.5 * Enl
         else:
             dxq = torch.zeros((*q.shape[:-1], self.N + 1), device=q.device)
