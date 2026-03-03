@@ -22,3 +22,7 @@ sav_string/runs/*
 *.dat
 *.h5
 *.pyc
+
+# Configuration files.
+*.yaml
+*.sh

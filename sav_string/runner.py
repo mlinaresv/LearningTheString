@@ -9,7 +9,7 @@ sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.train import train, build_dataloaders
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
-from sav_string.utils.loader import H5TimeShiftDataset
+from sav_string.nn.utils.dataset import H5TimeShiftDataset
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -33,8 +33,14 @@ def main(config_path='test_configuration.yaml'):
 
     # Define the datasets and dataloaders.
     print('--> Building the training and validation dataset...')
-    train_dataset = H5TimeShiftDataset(config["data"]["training_dataset_path"], config["data"]["training_number_of_trajectories"])
-    val_dataset = H5TimeShiftDataset(config["data"]["validation_dataset_path"], config["data"]["validation_number_of_trajectories"])
+    train_dataset = H5TimeShiftDataset(
+        h5path=config["data"]["training_dataset_path"], 
+        number_of_trajectories=config["data"]["training_number_of_trajectories"],
+        lazy_access=config["data"]["training_lazy_access"])
+    val_dataset = H5TimeShiftDataset(
+        h5path=config["data"]["validation_dataset_path"], 
+        number_of_trajectories=config["data"]["validation_number_of_trajectories"],
+        lazy_access=config["data"]["validation_lazy_access"])
 
     # Define the PHNNString model.
     print('--> Defining the model...')
@@ -68,7 +74,8 @@ def main(config_path='test_configuration.yaml'):
         device=device,
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
-        log_dir=log_dir
+        log_dir=log_dir,
+        test_audio_duration=config["train"]["test_audio_duration"]
     )
 
 if __name__ == '__main__':

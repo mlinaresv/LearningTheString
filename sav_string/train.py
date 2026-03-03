@@ -1,10 +1,12 @@
-import os
-import yaml
+import copy
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
+from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.nn.utils.inference_during_training import inference_during_training
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
@@ -27,7 +29,8 @@ def train(
         epochs: int = 5000, 
         device: str = "cpu",
         log_each_n_epochs: int = 10,
-        log_each_n_updates: int = 100        
+        log_each_n_updates: int = 100,
+        test_audio_duration: float = 2        
     ):
 
     # Define the numerical solver.
@@ -51,7 +54,7 @@ def train(
 
         # Prepare setting for training.
         model.train()
-        trainin_running_loss = 0.0
+        training_running_loss = 0.0
 
         # Training loop.
         for i, (x_batch, y_batch) in enumerate(train_loader):
@@ -74,7 +77,7 @@ def train(
             
             optimizer.step()
 
-            trainin_running_loss += loss.item() * state_n_1.size(0)
+            training_running_loss += loss.item() * state_n_1.size(0)
 
             # Log every n updates
             if epoch % log_each_n_epochs == 0:
@@ -108,11 +111,43 @@ def train(
             validation_running_loss += loss_val.item() * state_n_1_val.size(0)
             
         # Total training loss per epoch.
-        epoch_loss = trainin_running_loss / len(train_loader.dataset)
+        epoch_loss = training_running_loss / len(train_loader.dataset)
         # Total validation loss.
         validation_loss = validation_running_loss / len(val_loader.dataset)
         writer.add_scalar("Loss/Validation", validation_loss, epoch)
 
+
+        # Inference loop.
+        with torch.inference_mode():
+            val_model = copy.deepcopy(solver.model).cpu()
+            p_trajectory = inference_during_training(
+                model=val_model,
+                dataset=val_dataset,
+                sr=sr,
+                duration=test_audio_duration
+            )
+
+            # Listen to the generated trajectory.
+            _, _, tensorboard_audio = listen_to_a_trajectory(
+                p_trajectory=p_trajectory.numpy(),
+                sr=sr,
+                filename=f'{log_dir}/what_does_the_model_say'
+            )
+
+            # Listen to the reference trajectory.
+            p_ref = val_dataset.state_data[0, :, val_dataset.n: val_dataset.n * 2]
+            _, _, _ = listen_to_a_trajectory(
+                p_trajectory=p_ref.numpy(),
+                sr=sr,
+                filename=f'{log_dir}/reference'
+            )
+
+        writer.add_audio(
+            tag="audio/epoch",
+            snd_tensor=tensorboard_audio,
+            global_step=epoch,
+            sample_rate=sr
+        )
 
 
     writer.close()

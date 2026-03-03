@@ -34,7 +34,10 @@ class H5TimeShiftDataset(Dataset):
             (position(t), momentum(t), scalar drift variable(t), control(t), excitation position), state(t+1) 
                  
         """
-        
+        self.h5path = h5path
+        self.lazy_access = lazy_access
+        self.file = None  # will be opened lazily per worker.
+
         if not lazy_access:
             # Loads the desired number of trajectories into the memory.
             with h5py.File(h5path, 'r') as f:
@@ -47,16 +50,16 @@ class H5TimeShiftDataset(Dataset):
         else:
             # Loads a sample trajectory to get the last two dimensions.
             with h5py.File(h5path, 'r') as f:
-                state_data = torch.from_numpy(f['state'][0]).float()
+                shape = f['state'].shape
 
-            self.N, self.T, self.D = number_of_trajectories, state_data.shape[0], state_data.shape[1]
+            self.N = number_of_trajectories
+            self.T = shape[1]
+            self.D = shape[2]
             self.n = (self.D - 2) // 2
 
-            del state_data
-            gc.collect()
-
-        self.h5path = h5path
-        self.lazy_access = lazy_access
+    def _init_file(self):
+        if self.file is None:
+            self.file = h5py.File(self.h5path, 'r')
 
     def __len__(self):
         return self.N * (self.T - 1)
@@ -74,11 +77,11 @@ class H5TimeShiftDataset(Dataset):
             exc_position = self.exc_data[n_idx]
             y = self.state_data[n_idx, t_idx + 1, :-2]
         else:
-            # With a lazy acess configuration, each state must be accessed reading the file.
-            with h5py.File(self.h5path, 'r') as f:
-                state = torch.from_numpy(f['state'][n_idx, t_idx]).float()
-                y = torch.from_numpy(f['state'][n_idx, t_idx + 1, :-2]).float()
-                exc_position = torch.from_numpy(f['exc'][n_idx]).float()
+            self._init_file()
+
+            state = torch.from_numpy(self.file['state'][n_idx, t_idx]).float()
+            y = torch.from_numpy(self.file['state'][n_idx, t_idx + 1, :-2]).float()
+            exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
             
             q, p, r, u = (state[:self.n], state[self.n:self.n * 2], 
                           state[-2].unsqueeze(-1), state[-1]) 
