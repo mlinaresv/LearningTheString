@@ -22,9 +22,9 @@ class PHNNString(nn.Module):
         self.learn_linear_energy = learn_linear_energy
         self.learn_nonlinear_energy = learn_nonlinear_energy
         
-        self.rhol = nn.Parameter(torch.tensor(1e3))
-        self.Rmid_ = nn.Parameter(torch.tensor(0.1))
-        self.Rsv_ = nn.Parameter(torch.tensor(1e-4))
+        self.rhol = torch.tensor(8000)#nn.Parameter(torch.tensor(1e3))
+        self.Rmid_ = torch.tensor(0.9)#nn.Parameter(torch.tensor(0.1))
+        self.Rsv_ = torch.tensor(4e-4)#nn.Parameter(torch.tensor(1e-4))
         self.build_matrices()
 
         # Define the network for the nonlinear part. 

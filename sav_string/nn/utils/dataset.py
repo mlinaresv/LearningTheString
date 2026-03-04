@@ -41,7 +41,7 @@ class H5TimeShiftDataset(Dataset):
         if not lazy_access:
             # Loads the desired number of trajectories into the memory.
             with h5py.File(h5path, 'r') as f:
-                self.state_data = torch.from_numpy(f['state'][:number_of_trajectories]).float()
+                self.state_data = torch.from_numpy(f['states'][:number_of_trajectories]).float()
                 self.exc_data = torch.from_numpy(f['exc'][:number_of_trajectories]).float()
 
             self.N, self.T, self.D = self.state_data.shape
@@ -50,7 +50,7 @@ class H5TimeShiftDataset(Dataset):
         else:
             # Loads a sample trajectory to get the last two dimensions.
             with h5py.File(h5path, 'r') as f:
-                shape = f['state'].shape
+                shape = f['states'].shape
 
             self.N = number_of_trajectories
             self.T = shape[1]
@@ -79,8 +79,8 @@ class H5TimeShiftDataset(Dataset):
         else:
             self._init_file()
 
-            state = torch.from_numpy(self.file['state'][n_idx, t_idx]).float()
-            y = torch.from_numpy(self.file['state'][n_idx, t_idx + 1, :-2]).float()
+            state = torch.from_numpy(self.file['states'][n_idx, t_idx]).float()
+            y = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :-2]).float()
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
             
             q, p, r, u = (state[:self.n], state[self.n:self.n * 2], 

@@ -1,12 +1,14 @@
 import copy
 import torch
+import numpy as np
 import torch.nn as nn
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
-from sav_string.nn.utils.inference_during_training import inference_during_training
+from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
@@ -82,7 +84,9 @@ def train(
             # Log every n updates
             if epoch % log_each_n_epochs == 0:
                 if i % log_each_n_updates == 0:
-                    writer.add_scalar("Loss/Train", loss, (epoch - 1) * len(train_loader) + i)
+                    # Log the loss in TensorBoard and save a model checkpoint.
+                    index = (epoch - 1) * len(train_loader) + i
+                    writer.add_scalar("Loss/Train", loss, index)
                     torch.save({
                         "epoch": epoch,
                         "update": i,
@@ -90,6 +94,15 @@ def train(
                         "optimizer_state_dict": optimizer.state_dict(),
                         "loss": loss,
                     }, f"./{log_dir}/checkpoint.pth")
+
+                    # Compute the gradient norms.
+                    total_linear_norm = 0.0
+                    for module in solver.model.modules():
+                        if isinstance(module, nn.Linear):
+                            for param in module.parameters():
+                                if param.grad is not None:
+                                    total_linear_norm += param.grad.norm().item()
+                    writer.add_scalar("Gradients/NonQuadraticModel", total_linear_norm, index)
             
         # Prepare setting for validation.
         model.eval()
@@ -128,27 +141,40 @@ def train(
             )
 
             # Listen to the generated trajectory.
-            _, _, tensorboard_audio = listen_to_a_trajectory(
+            _, _, tensorboard_audio_pred = listen_to_a_trajectory(
                 p_trajectory=p_trajectory.numpy(),
                 sr=sr,
                 filename=f'{log_dir}/what_does_the_model_say'
             )
 
             # Listen to the reference trajectory.
-            p_ref = val_dataset.state_data[0, :, val_dataset.n: val_dataset.n * 2]
-            _, _, _ = listen_to_a_trajectory(
-                p_trajectory=p_ref.numpy(),
-                sr=sr,
-                filename=f'{log_dir}/reference'
-            )
+            if epoch == 1:
+                p_ref = val_dataset.file['states'][0, :, val_dataset.n: val_dataset.n * 2].astype(np.float32)
+                _, _, _ = listen_to_a_trajectory(
+                    p_trajectory=p_ref,
+                    sr=sr,
+                    filename=f'{log_dir}/reference'
+                )
 
+        # Log the audio prediction from the guitar string.
         writer.add_audio(
             tag="audio/epoch",
-            snd_tensor=tensorboard_audio,
+            snd_tensor=tensorboard_audio_pred,
             global_step=epoch,
             sample_rate=sr
         )
 
+        # Create the spectrogram images.
+        pmid_pred = p_trajectory[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)].numpy()
+        spec_pred = make_spectrogram_image(pmid_pred, sr)
+        if epoch == 1:
+            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)]
+            spec_ref = make_spectrogram_image(pmid_ref, sr)
+            writer.add_figure("Reference spectrogram", spec_ref, global_step=epoch)
+            plt.close(spec_pred)  # avoid memory leaks
+
+        writer.add_figure("Predicted spectrogram", spec_pred, global_step=epoch)
+        plt.close(spec_pred)  # avoid memory leaks
 
     writer.close()
     print("Training finished.")

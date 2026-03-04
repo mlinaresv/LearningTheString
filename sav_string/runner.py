@@ -25,11 +25,14 @@ def main(config_path='test_configuration.yaml'):
     set_seed(config["seed"])
 
     # Define the device.
-    gpu_id = mgp.get_gpu_lock(gpu_device_id=config["gpu_id"])
-    os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
+    try:
+        gpu_id = mgp.get_gpu_lock(gpu_device_id=config["gpu_id"])
+        os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
+        print(f'Training initialized on GPU#{gpu_id}')
+    except mgp.NoGpuManager:
+        print(f'Training on the one and only one GPU!')
+        
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f'Training initialized on GPU#{gpu_id}')
-
 
     # Define the datasets and dataloaders.
     print('--> Building the training and validation dataset...')

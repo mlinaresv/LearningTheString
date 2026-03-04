@@ -60,8 +60,7 @@ def generate_one_trajectory(
         
     # Integrate the trajectory.
     p_trajectory, q_trajectory, r_trajectory = solver.integrate(
-        qlast0=q0,
-        qnext0=q0,
+        q0=q0,
         p0=p0,
         u_func=u_func,
         duration=duration,
@@ -74,16 +73,17 @@ def generate_one_trajectory(
     u_trajectory = np.concatenate([u_func(t_i) for t_i in t], axis=0)
     assert len(u_trajectory) == len(q_trajectory)
 
-    os.makedirs(f'./{audio_directory}/audio', exist_ok=True)
-    listen_to_a_trajectory(p_trajectory=p_trajectory, 
-                           sr=solver.sr, 
-                           filename=f'{audio_directory}/audio/trajectory_{trajectory_index}')
+    if audio_directory:
+        os.makedirs(f'./{audio_directory}/audio', exist_ok=True)
+        listen_to_a_trajectory(p_trajectory=p_trajectory, 
+                            sr=solver.sr, 
+                            filename=f'{audio_directory}/audio/trajectory_{trajectory_index}')
 
     return trajectory_index, q_trajectory, p_trajectory, r_trajectory, u_trajectory, pluck_position
 
 
 def generate_string_database(
-        number_of_trajectories: int,
+        number_of_trajectories: dict[int],
         sr: int,
         initial_position_type: str,
         amplitude_initial_position: str,
@@ -103,46 +103,47 @@ def generate_string_database(
     dt = 1 / sr
     t = np.arange(int(duration / dt) + 1) * dt
 
-    # Create the HDF5 file and dataset first.
-    with h5py.File(f"{save_directory}/{filename}.h5", "w") as f:
-        states = f.create_dataset(
-            "states",
-            shape=(number_of_trajectories, len(t), 2 * model.N + 2),
-            dtype=np.float32,
-            chunks=(1, len(t), 2 * model.N + 2)
-        )
-        exc = f.create_dataset(
-            "exc", 
-            shape=(number_of_trajectories, 1),
-            dtype=np.float32,
-            chunks=(1, 1))
+    for type_of_data in list(number_of_trajectories.keys()):
+        # Create the HDF5 file and dataset first.
+        with h5py.File(f"{save_directory}/{type_of_data}_{filename}.h5", "w") as f:
+            states = f.create_dataset(
+                "states",
+                shape=(number_of_trajectories[type_of_data], len(t), 2 * model.N + 2),
+                dtype=np.float32,
+                chunks=(1, len(t), 2 * model.N + 2)
+            )
+            exc = f.create_dataset(
+                "exc", 
+                shape=(number_of_trajectories[type_of_data], 1),
+                dtype=np.float32,
+                chunks=(1, 1))
 
-    indices = [i for i in range(number_of_trajectories)]
-    print('Generating and allocating at the same time!')
-    with h5py.File(f"{save_directory}/{filename}.h5", "r+") as f:
-        states = f["states"]
-        exc = f["exc"]
+        indices = [i for i in range(number_of_trajectories[type_of_data])]
+        print('Generating and allocating at the same time!')
+        with h5py.File(f"{save_directory}/{type_of_data}_{filename}.h5", "r+") as f:
+            states = f["states"]
+            exc = f["exc"]
 
-        results = Parallel(n_jobs=n_jobs, return_as="generator")(
-            delayed(generate_one_trajectory)(**dict(
-                sr=sr,
-                initial_position_type=initial_position_type,
-                amplitude_initial_position=amplitude_initial_position,
-                control_type=control_type,
-                pluck_position_interval=pluck_position_interval,
-                pluck_duration_interval=pluck_duration_interval,
-                pluck_amplitude_interval=pluck_amplitude_interval,
-                duration=duration,
-                trajectory_index=index,
-                audio_directory=audio_directory
-            ))
-            for index in indices
-        )
+            results = Parallel(n_jobs=n_jobs, return_as="generator")(
+                delayed(generate_one_trajectory)(**dict(
+                    sr=sr,
+                    initial_position_type=initial_position_type,
+                    amplitude_initial_position=amplitude_initial_position,
+                    control_type=control_type,
+                    pluck_position_interval=pluck_position_interval,
+                    pluck_duration_interval=pluck_duration_interval,
+                    pluck_amplitude_interval=pluck_amplitude_interval,
+                    duration=duration,
+                    trajectory_index=index,
+                    audio_directory=audio_directory
+                ))
+                for index in indices
+            )
 
-        print('Allocating trajectories...')
-        for i, q, p, r, u, exc_pos in results:
-            states[i] = np.concatenate([q, p, r, u], axis=-1).astype(np.float32)
-            exc[i] = exc_pos
+            print('Allocating trajectories...')
+            for i, q, p, r, u, exc_pos in results:
+                states[i] = np.concatenate([q, p, r, u], axis=-1).astype(np.float32)
+                exc[i] = exc_pos
 
-    print('Trajectories generated and saved!')
+            print(f'Trajectories for {type_of_data} generated and saved!')
     
