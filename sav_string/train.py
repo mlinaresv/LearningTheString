@@ -13,8 +13,8 @@ from sav_string.nn.utils.inference_during_training import inference_during_train
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
 
-    train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     return train_loader, val_loader
 
@@ -72,7 +72,7 @@ def train(
             # Compute the next state.
             qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
             preds = torch.concat((qnext, pnext), axis=-1)
-            loss = (criterion(preds, state_n_1)) / (solver.dt**2)
+            loss = criterion(preds, state_n_1)
             assert not torch.isnan(loss)
 
             loss.backward()
@@ -119,7 +119,7 @@ def train(
             # Compute the next state.
             qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
             preds_val = torch.concat((qnext_val, pnext_val), axis=-1)
-            loss_val = (criterion(preds_val, state_n_1_val)) / (solver.dt**2)
+            loss_val = criterion(preds_val, state_n_1_val)
 
             validation_running_loss += loss_val.item() * state_n_1_val.size(0)
             
@@ -149,7 +149,7 @@ def train(
 
             # Listen to the reference trajectory.
             if epoch == 1:
-                p_ref = val_dataset.file['states'][0, :, val_dataset.n: val_dataset.n * 2].astype(np.float32)
+                p_ref = val_dataset.file['states'][0, :, val_dataset.n: val_dataset.n * 2]
                 _, _, _ = listen_to_a_trajectory(
                     p_trajectory=p_ref,
                     sr=sr,

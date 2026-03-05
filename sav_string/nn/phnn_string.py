@@ -21,10 +21,11 @@ class PHNNString(nn.Module):
         self.h = h
         self.learn_linear_energy = learn_linear_energy
         self.learn_nonlinear_energy = learn_nonlinear_energy
+        self.learn_nonlinear_geometric_constant = learn_nonlinear_geometric_constant
         
-        self.rhol = torch.tensor(8000)#nn.Parameter(torch.tensor(1e3))
-        self.Rmid_ = torch.tensor(0.9)#nn.Parameter(torch.tensor(0.1))
-        self.Rsv_ = torch.tensor(4e-4)#nn.Parameter(torch.tensor(1e-4))
+        self.rhol = torch.tensor(8000) * torch.pi * (float(true_string_parameters['Ra'])**2)
+        self.eta0 = torch.tensor(0.9)
+        self.eta1 = torch.tensor(4e-4)
         self.build_matrices()
 
         # Define the network for the nonlinear part. 
@@ -52,8 +53,8 @@ class PHNNString(nn.Module):
 
     def build_matrices(self):
         J0 = torch.tensor(1 / self.h)
-        M = self.h / (torch.abs(self.rhol) + 1e-14)
-        Rmid = torch.abs(self.Rmid_) / self.h
+        M = self.h / (torch.abs(self.rhol))
+        Rmid = (2 * torch.abs(self.rhol) * self.eta0 / self.h)
         return J0, M, Rmid
 
 
@@ -105,7 +106,7 @@ class PHNNString(nn.Module):
     
     def Rsv_op(self, v):
         d2xq = self.d2xq_op(v)
-        return (torch.abs(self.Rsv_) * d2xq) / self.h
+        return - 2 * self.rhol * self.eta1 * d2xq / self.h
     
     def G(self, excitation_position):
         batch_size = excitation_position.shape[0]

@@ -110,7 +110,7 @@ def generate_string_database(
                 "states",
                 shape=(number_of_trajectories[type_of_data], len(t), 2 * model.N + 2),
                 dtype=np.float32,
-                chunks=(1, len(t), 2 * model.N + 2)
+                chunks=(1, 256, 2 * model.N + 2)
             )
             exc = f.create_dataset(
                 "exc", 

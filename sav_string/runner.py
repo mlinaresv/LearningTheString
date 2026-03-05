@@ -53,6 +53,7 @@ def main(config_path='test_configuration.yaml'):
         hidden_dim=config["model"]["hidden_dim"],
         learn_linear_energy=config["model"]["learn_linear_energy"],
         learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
+        learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
         true_string_parameters=config["model"]["true_string_parameters"]
     ).to(device)
 

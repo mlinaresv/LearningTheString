@@ -4,7 +4,7 @@ from sav_string.generator import generate_string_database
 
 if __name__ == '__main__':
     generate_string_database(
-        number_of_trajectories=60,
+        number_of_trajectories={'train': 48, 'validation': 12},
         sr=88200,
         initial_position_type='zero',
         amplitude_initial_position=0,
