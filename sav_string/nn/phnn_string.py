@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sav_string.nn.upper_triangular_net import UpperTriangularNet
+from sav_string.nn.nonlinear_operator_net import LearnableEnergy
 
 class PHNNString(nn.Module):
 
@@ -11,7 +12,8 @@ class PHNNString(nn.Module):
         h: float, 
         hidden_dim: int, 
         learn_linear_energy: bool,
-        learn_nonlinear_energy: bool, 
+        learn_nonlinear_energy: str = None,
+        learn_nonlinear_geometric_constant: bool = False,
         true_string_parameters: dict = None
     ):
 
@@ -29,15 +31,27 @@ class PHNNString(nn.Module):
         self.build_matrices()
 
         # Define the network for the nonlinear part. 
-        if self.learn_nonlinear_energy:
-            self.Enl_Ut = UpperTriangularNet(input_dim=self.N,
-                                            hidden_dim=hidden_dim,
-                                            d=self.N,
-                                            dependent_on_x=True)
+        if self.learn_nonlinear_energy == 'cholesky':
+            self.Enl_Ut = UpperTriangularNet(
+                input_dim=self.N,
+                hidden_dim=hidden_dim,
+                d=self.N,
+                dependent_on_x=True
+            )
+        elif self.learn_nonlinear_energy == 'kernel':
+            self.Enl_ = LearnableEnergy(
+                input_dim=self.N - 1, 
+                hidden_dim=self.N - 1, 
+                h=self.h, 
+                learnable_filter=False
+            )
         else:
-            self.EnlGeomConst = self.h * (
-                (float(true_string_parameters['E']) * torch.pi * (float(true_string_parameters['Ra'])**2)) - true_string_parameters['T']
-            ) / 8
+            if self.learn_nonlinear_geometric_constant:
+                self.EnlGeomConst = nn.Parameter(torch.randn(1))
+            else:
+                self.EnlGeomConst = self.h * (
+                    (float(true_string_parameters['E']) * torch.pi * (float(true_string_parameters['Ra'])**2)) - true_string_parameters['T']
+                ) / 8
 
         # Define the network for the linear part.
         if self.learn_linear_energy:
@@ -59,10 +73,15 @@ class PHNNString(nn.Module):
 
 
     def Enl(self, q):
-        if self.learn_nonlinear_energy:
+        if self.learn_nonlinear_energy == 'cholesky':
             Lq = torch.einsum('... i j, ... j -> ... i', self.Enl_Ut(q), q)
             Enl = torch.einsum('... j, ... j -> ...', Lq, Lq).unsqueeze(-1)
             return 0.5 * Enl
+        
+        elif self.learn_nonlinear_energy == 'kernel':
+            energy = self.Enl_(q)
+            return energy
+        
         else:
             dxq = torch.zeros((*q.shape[:-1], self.N + 1), device=q.device)
             dxq[..., -1] = 0
@@ -73,7 +92,7 @@ class PHNNString(nn.Module):
             return self.EnlGeomConst * energy_sum
     
     def Fnl(self, q):
-        if self.learn_nonlinear_energy:
+        if self.learn_nonlinear_energy in ['cholesky', 'kernel']:
             y, vjp_fn = torch.func.vjp(self.Enl, q)
             fnl = vjp_fn(torch.ones_like(y))[0]
             return fnl
