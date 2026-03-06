@@ -72,7 +72,7 @@ def train(
             # Compute the next state.
             qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
             preds = torch.concat((qnext, pnext), axis=-1)
-            loss = criterion(preds, state_n_1)
+            loss = criterion(preds, state_n_1) / (solver.dt2)
             assert not torch.isnan(loss)
 
             loss.backward()
@@ -86,7 +86,7 @@ def train(
                 if i % log_each_n_updates == 0:
                     # Log the loss in TensorBoard and save a model checkpoint.
                     index = (epoch - 1) * len(train_loader) + i
-                    writer.add_scalar("Loss/Train", loss, index)
+                    writer.add_scalar("Train/Loss", loss, index)
                     torch.save({
                         "epoch": epoch,
                         "update": i,
@@ -106,7 +106,8 @@ def train(
             
         # Prepare setting for validation.
         model.eval()
-        validation_running_loss = 0.0
+        q_validation_running_loss = 0.0
+        p_validation_running_loss = 0.0
 
         # Validation loop.
         for x_batch_val, y_batch_val in val_loader:
@@ -118,16 +119,18 @@ def train(
 
             # Compute the next state.
             qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
-            preds_val = torch.concat((qnext_val, pnext_val), axis=-1)
-            loss_val = criterion(preds_val, state_n_1_val)
+            # Compute the position and momentum losses.
+            q_loss_val = criterion(qnext_val, state_n_1_val[..., :model.N])
+            p_loss_val = criterion(pnext_val, state_n_1_val[..., model.N:])
 
-            validation_running_loss += loss_val.item() * state_n_1_val.size(0)
-            
-        # Total training loss per epoch.
-        epoch_loss = training_running_loss / len(train_loader.dataset)
+            q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
+            p_validation_running_loss += p_loss_val.item() * state_n_1_val.size(0)
+
         # Total validation loss.
-        validation_loss = validation_running_loss / len(val_loader.dataset)
-        writer.add_scalar("Loss/Validation", validation_loss, epoch)
+        q_validation_loss = q_validation_running_loss / len(val_loader.dataset)
+        p_validation_loss = p_validation_running_loss / len(val_loader.dataset)
+        writer.add_scalar("Validation/PositionLoss", q_validation_loss, epoch)
+        writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
 
 
         # Inference loop.
@@ -170,10 +173,10 @@ def train(
         if epoch == 1:
             pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)]
             spec_ref = make_spectrogram_image(pmid_ref, sr)
-            writer.add_figure("Reference spectrogram", spec_ref, global_step=epoch)
-            plt.close(spec_pred)  # avoid memory leaks
+            spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
+            plt.close(spec_ref)  # avoid memory leaks
 
-        writer.add_figure("Predicted spectrogram", spec_pred, global_step=epoch)
+        spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
         plt.close(spec_pred)  # avoid memory leaks
 
     writer.close()

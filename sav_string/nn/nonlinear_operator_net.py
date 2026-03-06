@@ -29,22 +29,21 @@ class LearnableDiff(nn.Module):
 
 
 class LearnableEnergy(nn.Module):
-    def __init__(self, input_dim, hidden_dim, h=1.0, learnable_filter=True):
+    def __init__(self, hidden_dim, h=1.0, learnable_filter=True):
         super().__init__()
         self.diff = LearnableDiff(h=h, learnable_filter=learnable_filter)
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(1, hidden_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, input_dim),
-            nn.ReLU()
+            nn.Linear(hidden_dim, 1)
         )
 
     def forward(self, q):
         dxq = self.diff(q)
-        features = dxq  # or dxq**2
+        features = dxq.unsqueeze(-1)  # or dxq**2
 
         # apply MLP per element
-        per_element = self.mlp(features)
+        per_element = self.mlp(features) ** 2
 
         # sum local energies
-        return per_element.sum(dim=-1, keepdim=True)
+        return per_element.sum(dim=1)

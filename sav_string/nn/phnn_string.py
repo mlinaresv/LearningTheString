@@ -24,6 +24,7 @@ class PHNNString(nn.Module):
         self.learn_linear_energy = learn_linear_energy
         self.learn_nonlinear_energy = learn_nonlinear_energy
         self.learn_nonlinear_geometric_constant = learn_nonlinear_geometric_constant
+        self.true_string_parameters = true_string_parameters
         
         self.rhol = torch.tensor(8000) * torch.pi * (float(true_string_parameters['Ra'])**2)
         self.eta0 = torch.tensor(0.9)
@@ -40,8 +41,7 @@ class PHNNString(nn.Module):
             )
         elif self.learn_nonlinear_energy == 'kernel':
             self.Enl_ = LearnableEnergy(
-                input_dim=self.N - 1, 
-                hidden_dim=self.N - 1, 
+                hidden_dim=64, 
                 h=self.h, 
                 learnable_filter=False
             )
@@ -79,8 +79,11 @@ class PHNNString(nn.Module):
             return 0.5 * Enl
         
         elif self.learn_nonlinear_energy == 'kernel':
+            EnlGeomConst = self.h * (
+                    (float(self.true_string_parameters['E']) * torch.pi * (float(self.true_string_parameters['Ra'])**2)) - self.true_string_parameters['T']
+                ) / 8
             energy = self.Enl_(q)
-            return energy
+            return EnlGeomConst * energy
         
         else:
             dxq = torch.zeros((*q.shape[:-1], self.N + 1), device=q.device)
