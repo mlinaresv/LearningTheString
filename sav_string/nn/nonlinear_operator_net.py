@@ -34,8 +34,16 @@ class LearnableEnergy(nn.Module):
         self.diff = LearnableDiff(h=h, learnable_filter=learnable_filter)
         self.mlp = nn.Sequential(
             nn.Linear(1, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, 1)
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, 1),
         )
 
     def forward(self, q):

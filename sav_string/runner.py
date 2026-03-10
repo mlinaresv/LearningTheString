@@ -51,8 +51,9 @@ def main(config_path='test_configuration.yaml'):
         N=config["model"]["N"], 
         h=config["model"]["h"], 
         hidden_dim=config["model"]["hidden_dim"],
-        learn_linear_energy=config["model"]["learn_linear_energy"],
+        learn_linear_energy_operator=config["model"]["learn_linear_energy_operator"],
         learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
+        learn_linear_constants=config["model"]["learn_linear_constants"],
         learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
         true_string_parameters=config["model"]["true_string_parameters"]
     ).to(device)
@@ -79,7 +80,8 @@ def main(config_path='test_configuration.yaml'):
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
         log_dir=log_dir,
-        test_audio_duration=config["train"]["test_audio_duration"]
+        test_audio_duration=config["train"]["test_audio_duration"],
+        test_q_interval=config["train"]["test_q_interval"]
     )
 
 if __name__ == '__main__':

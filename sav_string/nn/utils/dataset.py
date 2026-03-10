@@ -56,6 +56,7 @@ class H5TimeShiftDataset(Dataset):
             self.T = shape[1]
             self.D = shape[2]
             self.n = (self.D - 2) // 2
+            self._init_file()
 
     def _init_file(self):
         if self.file is None:

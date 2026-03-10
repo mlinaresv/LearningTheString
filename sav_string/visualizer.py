@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from sav_string.string_dataset.data.loader import H5TimeShiftDataset
+from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.fd_string_model import String
 
 
@@ -17,7 +17,7 @@ def get_energy_quotients_from_dataset(
     print(f'Loading data from {h5path}')
     with h5py.File(h5path, 'r') as f:
         # The [:] gets the data from the dataset object. 
-        states = f['state'][:]
+        states = f['states'][:]
         print(f'States loaded with shape: {states.shape}')
     
     # Define the different variables involved in the string simulation.
@@ -62,20 +62,10 @@ def get_drift_quotient(model, q, r):
     
 if __name__ == '__main__':
     # Define the parameters.
-    h5path = '/data2/anasynth_nonbp/linares/LearningTheString/validation_string_dataset.h5'
+    mode = 'validation'
+    h5path = f'/data2/anasynth_nonbp/linares/LearningTheString/{mode}_non_linear_string_dataset.h5'
     sr = 88200
-
-    # Define the type of guitar string.
-    DEFAULT_STRING_PARAMS = {
-        "l0": 0.65,
-        "Ra": 5.97e-4,
-        "rho": 7850,
-        "E": 4.2e8,
-        "T": 90.48,
-        "eta0": 0.9,
-        "eta1": 2e-4
-    }
-    model = String(sr=sr, **DEFAULT_STRING_PARAMS)
+    model = String(sr=sr)
 
     nl_quotient, drift_quotient = get_energy_quotients_from_dataset(h5path, model)
 
@@ -98,7 +88,7 @@ if __name__ == '__main__':
     axes[1].set_yscale('log')
     axes[2].set_yscale('log')
 
-    fig.savefig('visualize_energy_quotients.pdf')
+    fig.savefig(f'visualize_{mode}_energy_quotients.pdf')
     print('Finished :)')
 
 

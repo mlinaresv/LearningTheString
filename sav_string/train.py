@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
-from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image
+from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image, compute_non_linear_energy_error, write_constant_parameters_errors
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
@@ -32,7 +32,8 @@ def train(
         device: str = "cpu",
         log_each_n_epochs: int = 10,
         log_each_n_updates: int = 100,
-        test_audio_duration: float = 2        
+        test_audio_duration: float = 2,
+        test_q_interval: list = [-0.1, 0.1]        
     ):
 
     # Define the numerical solver.
@@ -44,7 +45,7 @@ def train(
     model.to(device)
 
     # Loss 
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
 
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -72,7 +73,7 @@ def train(
             # Compute the next state.
             qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
             preds = torch.concat((qnext, pnext), axis=-1)
-            loss = criterion(preds, state_n_1) / (solver.dt2)
+            loss = criterion(preds, state_n_1) / (solver.dt)
             assert not torch.isnan(loss)
 
             loss.backward()
@@ -103,6 +104,8 @@ def train(
                                 if param.grad is not None:
                                     total_linear_norm += param.grad.norm().item()
                     writer.add_scalar("Gradients/NonQuadraticModel", total_linear_norm, index)
+                    # Write in TensorBoard the errors of the constant parameters.
+                    write_constant_parameters_errors(writer, model, index)
             
         # Prepare setting for validation.
         model.eval()
@@ -132,52 +135,69 @@ def train(
         writer.add_scalar("Validation/PositionLoss", q_validation_loss, epoch)
         writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
 
-
         # Inference loop.
         with torch.inference_mode():
-            val_model = copy.deepcopy(solver.model).cpu()
-            p_trajectory = inference_during_training(
-                model=val_model,
+            #val_model = copy.deepcopy(solver.model).cpu()
+            p_trajectory_infer, q_trajectory_infer = inference_during_training(
+                model=model,
                 dataset=val_dataset,
                 sr=sr,
-                duration=test_audio_duration
+                duration=test_audio_duration,
+                device=device
             )
+            ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, :, : val_dataset.n * 2])
+            prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
+            inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
+            writer.add_scalar("Validation/InferenceLoss", inference_error, epoch)
+            writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
+
+        if epoch == 1 or (inference_error < baseline_inference_error):
+
+            # Set the baseline inference error for the rest of the training.
+            baseline_inference_error = inference_error
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "inference_error": inference_error,
+            }, f"./{log_dir}/best_model.pth")
 
             # Listen to the generated trajectory.
             _, _, tensorboard_audio_pred = listen_to_a_trajectory(
-                p_trajectory=p_trajectory.numpy(),
+                p_trajectory=p_trajectory_infer[0].numpy(),
                 sr=sr,
                 filename=f'{log_dir}/what_does_the_model_say'
             )
 
-            # Listen to the reference trajectory.
+            # Log the audio prediction from the guitar string.
+            writer.add_audio(
+                tag="audio/epoch",
+                snd_tensor=tensorboard_audio_pred,
+                global_step=epoch,
+                sample_rate=sr
+            )
+
+            # Create the predicted spectrogram images.
+            pmid_pred = p_trajectory_infer[0, :, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)].numpy()
+            spec_pred = make_spectrogram_image(pmid_pred, sr)          
+            spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
+            plt.close(spec_pred)  # avoid memory leaks
+
             if epoch == 1:
-                p_ref = val_dataset.file['states'][0, :, val_dataset.n: val_dataset.n * 2]
+
+                # Listen to the reference audio.
+                p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2]
                 _, _, _ = listen_to_a_trajectory(
-                    p_trajectory=p_ref,
+                    p_trajectory=p_ref.numpy(),
                     sr=sr,
                     filename=f'{log_dir}/reference'
                 )
 
-        # Log the audio prediction from the guitar string.
-        writer.add_audio(
-            tag="audio/epoch",
-            snd_tensor=tensorboard_audio_pred,
-            global_step=epoch,
-            sample_rate=sr
-        )
-
-        # Create the spectrogram images.
-        pmid_pred = p_trajectory[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)].numpy()
-        spec_pred = make_spectrogram_image(pmid_pred, sr)
-        if epoch == 1:
-            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)]
-            spec_ref = make_spectrogram_image(pmid_ref, sr)
-            spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
-            plt.close(spec_ref)  # avoid memory leaks
-
-        spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
-        plt.close(spec_pred)  # avoid memory leaks
+                # Create the reference spectrogram.
+                pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)].numpy()
+                spec_ref = make_spectrogram_image(pmid_ref, sr)
+                spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
+                plt.close(spec_ref)  # avoid memory leaks
+        
 
     writer.close()
     print("Training finished.")

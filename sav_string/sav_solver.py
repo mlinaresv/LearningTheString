@@ -1,6 +1,7 @@
 import torch
 import types
 import numpy as np
+from tqdm import tqdm
 
 class SAVSolver():
     """ General SAV solver using DAFx notations. """
@@ -111,30 +112,30 @@ class SAVSolver():
         # Time vector.
         self.Nt = int(duration / self.dt)
         self.t = self.lib.arange(self.Nt) * self.dt
-        p_trajectory, q_trajectory = self.lib.zeros((self.Nt + 1, q0.shape[-1])), self.lib.zeros((self.Nt + 1, q0.shape[-1]))
-        r_trajectory = self.lib.zeros((self.Nt + 1, 1))
+        p_trajectory, q_trajectory = self.lib.zeros((*p0.shape[:-1], self.Nt + 1, p0.shape[-1])), self.lib.zeros((*q0.shape[:-1], self.Nt + 1, q0.shape[-1]))
+        r_trajectory = self.lib.zeros((*p0.shape[:-1], self.Nt + 1, 1))
 
         # State initialization.
         qnext0 = q0
         rnow = self.lib.sqrt(2 * self.model.Enl((q0 + qnext0) / 2) + self.C0)
         qlast = qnext0
         plast = p0
-        p_trajectory[0, :] = plast
-        q_trajectory[0, :] = qlast
-        r_trajectory[0, :] = rnow
+        p_trajectory[..., 0, :] = plast
+        q_trajectory[..., 0, :] = qlast
+        r_trajectory[..., 0, :] = rnow
 
         # Main loop.
         for i in range(self.Nt):
             # Define the control at the time step.
             
-            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[i].unsqueeze(0)
+            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
             qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
             qlast = qnext
             plast = pnext
             rnow = rnext  
             # Append the new generated states to the final trajectory.
-            p_trajectory[i + 1, :] = pnext
-            q_trajectory[i + 1, :] = qnext
-            r_trajectory[i + 1, :] = rnext
+            p_trajectory[..., i + 1, :] = pnext
+            q_trajectory[..., i + 1, :] = qnext
+            r_trajectory[..., i + 1, :] = rnext
 
         return p_trajectory, q_trajectory, r_trajectory
