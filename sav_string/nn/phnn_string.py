@@ -21,6 +21,7 @@ class PHNNString(nn.Module):
         learn_nonlinear_energy: str = None,
         learn_linear_constants: bool = False,
         learn_nonlinear_geometric_constant: bool = False,
+        learn_nonlinear_energy_filter: bool = False,
         true_string_parameters: dict = None
     ):
 
@@ -33,6 +34,7 @@ class PHNNString(nn.Module):
         self.learn_nonlinear_energy = learn_nonlinear_energy
         self.learn_linear_constants = learn_linear_constants
         self.learn_nonlinear_geometric_constant = learn_nonlinear_geometric_constant
+        self.learn_nonlinear_energy_filter = learn_nonlinear_energy_filter
         self.true_string_parameters = true_string_parameters
         
 
@@ -83,8 +85,8 @@ class PHNNString(nn.Module):
                                             dependent_on_x=False)
 
         elif self.learn_linear_energy_operator == 'kernel':
-
-                self.linear_energy_kernel = LearnableDiff(h=1.0, learnable_filter=True)       
+                
+            self.linear_energy_kernel = LearnableDiff(h=1.0, learnable_filter=True)      
 
 
         ###### NON-QUADRATIC ENERGY ######
@@ -98,7 +100,10 @@ class PHNNString(nn.Module):
             )
         elif self.learn_nonlinear_energy == 'kernel':
 
-            self.Enl_ = LearnableEnergy(hidden_dim=100, h=self.h, learnable_filter=False)
+            if not self.learn_nonlinear_energy_filter:
+                self.Enl_ = LearnableEnergy(hidden_dim=100, h=self.h, learnable_filter=False)
+            else:
+                self.Enl_ = LearnableEnergy(hidden_dim=100, h=1.0, learnable_filter=True)
 
 
     def build_matrices(self):

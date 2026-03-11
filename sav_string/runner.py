@@ -55,6 +55,7 @@ def main(config_path='test_configuration.yaml'):
         learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
         learn_linear_constants=config["model"]["learn_linear_constants"],
         learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
+        learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
         true_string_parameters=config["model"]["true_string_parameters"]
     ).to(device)
 

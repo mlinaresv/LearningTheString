@@ -104,10 +104,17 @@ def train(
                                 if param.grad is not None:
                                     total_linear_norm += param.grad.norm().item()
                     writer.add_scalar("Gradients/NonQuadraticModel", total_linear_norm, index)
+
                     # Write in TensorBoard the errors of the constant parameters.
                     write_constant_parameters_errors(writer, model, index)
+
+                    # If the nonquadratic energy kernel is learned.
+                    if model.learn_nonlinear_energy_filter:
+                        writer.add_scalar("Inference/FilterWeight1", model.Enl_.diff.conv.weight.data[..., 0].item(), index)
+                        writer.add_scalar("Inference/FilterWeight2", model.Enl_.diff.conv.weight.data[..., 1].item(), index)
             
-        # Prepare setting for validation.
+
+        ###### VALIDATION ######
         model.eval()
         q_validation_running_loss = 0.0
         p_validation_running_loss = 0.0
@@ -135,9 +142,11 @@ def train(
         writer.add_scalar("Validation/PositionLoss", q_validation_loss, epoch)
         writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
 
-        # Inference loop.
+
+        ###### INFERENCE ######
         with torch.inference_mode():
-            #val_model = copy.deepcopy(solver.model).cpu()
+
+            # Compute and write the inference loss.
             p_trajectory_infer, q_trajectory_infer = inference_during_training(
                 model=model,
                 dataset=val_dataset,
@@ -149,6 +158,8 @@ def train(
             prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
             inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
             writer.add_scalar("Validation/InferenceLoss", inference_error, epoch)
+
+            # Compute and write the nonquadratic energy error with respect to the ground truth function.
             writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
 
         if epoch == 1 or (inference_error < baseline_inference_error):
