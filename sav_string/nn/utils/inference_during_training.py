@@ -69,12 +69,12 @@ def write_constant_parameters_errors(writer, model, index):
     I = torch.pi * Ra**4 / 4
     EnlGeomConst = (E * torch.pi * Ra**2 - T) / 8
     # Plot the error between the true value and the predicted one.
-    writer.add_scalar("Parameters/Rho", torch.abs(rho - model.rho), index)
-    writer.add_scalar("Parameters/Ra", torch.abs(Ra - model.Ra), index)
+    writer.add_scalar("Parameters/Rho", torch.abs(rho - torch.abs(model.rho)), index)
+    writer.add_scalar("Parameters/Ra", torch.abs(Ra - torch.abs(model.Ra)), index)
     writer.add_scalar("Parameters/rhol", torch.abs(rhol - model.rhol), index)
-    writer.add_scalar("Parameters/eta0", torch.abs(eta0 - model.eta0), index)
-    writer.add_scalar("Parameters/eta1", torch.abs(eta1 - model.eta1), index)
-    writer.add_scalar("Parameters/E", torch.abs(E - model.E), index)
-    writer.add_scalar("Parameters/T", torch.abs(T - model.T), index)
+    writer.add_scalar("Parameters/eta0", torch.abs(eta0 - torch.abs(model.eta0)), index)
+    writer.add_scalar("Parameters/eta1", torch.abs(eta1 - torch.abs(model.eta1)), index)
+    writer.add_scalar("Parameters/E", torch.abs(E - torch.abs(model.E)), index)
+    writer.add_scalar("Parameters/T", torch.abs(T - torch.abs(model.T)), index)
     writer.add_scalar("Parameters/I", torch.abs(I - model.I), index)
     writer.add_scalar("Parameters/EnlGeomConst", torch.abs(EnlGeomConst - model.EnlGeomConst), index)
