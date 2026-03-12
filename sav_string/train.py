@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
-from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image, compute_non_linear_energy_error, write_constant_parameters_errors
+from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image, compute_non_linear_energy_error, write_constant_parameters_errors, write_stability_conditions
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
@@ -107,6 +107,8 @@ def train(
 
                     # Write in TensorBoard the errors of the constant parameters.
                     write_constant_parameters_errors(writer, model, index)
+                    # Write in Tensorboard the stability conditions.
+                    write_stability_conditions(writer, model, index, solver.sr) 
 
                     # If the nonquadratic energy kernel is learned.
                     if model.learn_nonlinear_energy_filter:

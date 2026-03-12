@@ -20,6 +20,8 @@ class PHNNString(nn.Module):
         learn_linear_energy_operator: str,
         learn_nonlinear_energy: str = None,
         learn_linear_constants: bool = False,
+        learn_tension_coefficient: bool = False,
+        learn_radius_coefficient: bool = False,
         learn_dissipation_constants: bool = False, 
         learn_nonlinear_geometric_constant: bool = False,
         learn_nonlinear_energy_filter: bool = False,
@@ -34,6 +36,8 @@ class PHNNString(nn.Module):
         self.learn_linear_energy_operator = learn_linear_energy_operator
         self.learn_nonlinear_energy = learn_nonlinear_energy
         self.learn_linear_constants = learn_linear_constants
+        self.learn_tension_coefficient = learn_tension_coefficient
+        self.learn_radius_coefficient = learn_radius_coefficient
         self.learn_dissipation_constants = learn_dissipation_constants
         self.learn_nonlinear_geometric_constant = learn_nonlinear_geometric_constant
         self.learn_nonlinear_energy_filter = learn_nonlinear_energy_filter
@@ -41,33 +45,20 @@ class PHNNString(nn.Module):
         
 
         ###### CONSTANT PARAMETERS ######
-        rho, Ra, eta0, eta1 = float(true_string_parameters['rho']), float(true_string_parameters['Ra']), float(true_string_parameters['eta0']), float(true_string_parameters['eta1'])
-        E, T = float(true_string_parameters['E']), float(true_string_parameters['T'])
+        self.l0 = torch.tensor(float(true_string_parameters['l0']), dtype=torch.float32)
 
-        if not self.learn_linear_constants:
+        if self.learn_linear_constants:
 
-            self.Ra = torch.tensor(Ra)
-            self.rho = torch.tensor(rho)
-            self.E = torch.tensor(E)
-            self.T = torch.tensor(T)
-
-        else:
-
-            self.Ra = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(Ra)), dtype=torch.float32))
-            self.rho = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(rho)), dtype=torch.float32))
-            self.E = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(E)), dtype=torch.float32))
-            self.T = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(T)), dtype=torch.float32))
+            self.Ra_ = nn.Parameter(torch.tensor(1, dtype=torch.float32)) 
+            self.rho_ = nn.Parameter(torch.tensor(1, dtype=torch.float32)) 
+            self.E_ = nn.Parameter(torch.tensor(1, dtype=torch.float32)) 
+            self.T_ = nn.Parameter(torch.tensor(1, dtype=torch.float32)) 
 
         
-        if not self.learn_dissipation_constants:
+        if self.learn_dissipation_constants:
 
-            self.eta0 = torch.tensor(eta0)
-            self.eta1 = torch.tensor(eta1)
-
-        else:
-
-            self.eta0 = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(eta0)), dtype=torch.float32))
-            self.eta1 = nn.Parameter(torch.tensor(10**(compute_order_of_magnitude(eta1)), dtype=torch.float32))
+            self.eta0_ = nn.Parameter(torch.tensor(1, dtype=torch.float32)) 
+            self.eta1_ = nn.Parameter(torch.tensor(1, dtype=torch.float32))
 
 
         ###### QUADRATIC ENERGY ######
@@ -98,6 +89,48 @@ class PHNNString(nn.Module):
                 self.Enl_ = LearnableEnergy(hidden_dim=100, h=self.h, learnable_filter=False)
             else:
                 self.Enl_ = LearnableEnergy(hidden_dim=100, h=1.0, learnable_filter=True)
+
+    @property
+    def rho(self):
+        if self.learn_linear_constants:
+            return torch.abs(self.rho_) * float(self.true_string_parameters['rho'])
+        else:
+            return torch.tensor(float(self.true_string_parameters['rho']))
+    
+    @property
+    def Ra(self):
+        if not self.learn_linear_constants or not self.learn_radius_coefficient:
+            return torch.tensor(float(self.true_string_parameters['Ra']))    
+        else:
+            return torch.abs(self.Ra_) * float(self.true_string_parameters['Ra'])
+        
+    @property
+    def E(self):
+        if self.learn_linear_constants:
+            return torch.abs(self.E_) * float(self.true_string_parameters['E'])
+        else:
+            return torch.tensor(float(self.true_string_parameters['E']))
+        
+    @property
+    def T(self):
+        if not self.learn_linear_constants or not self.learn_tension_coefficient:
+            return torch.tensor(float(self.true_string_parameters['T']))  
+        else:
+            return torch.abs(self.T_) * float(self.true_string_parameters['T'])
+    
+    @property
+    def eta0(self):
+        if self.learn_dissipation_constants:
+            return torch.abs(self.eta0_) * float(self.true_string_parameters['eta0'])
+        else:
+            return torch.tensor(float(self.true_string_parameters['eta0']))
+    
+    @property
+    def eta1(self):
+        if self.learn_dissipation_constants:
+            return torch.abs(self.eta1_) * float(self.true_string_parameters['eta1'])
+        else:
+            return torch.tensor(float(self.true_string_parameters['eta1']))
 
     @property
     def rhol(self):
