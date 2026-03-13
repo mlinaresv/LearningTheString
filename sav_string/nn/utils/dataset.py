@@ -5,35 +5,42 @@ from torch.utils.data import Dataset
 
 class H5TimeShiftDataset(Dataset):
 
+    """
+    A Dataset class that gives as input the states, scalar drift variable and control for a given
+    instance t; and as output, the states, scalar drift variable and control for the next instance.
+
+    Parameters
+    ----------
+    h5path: str
+            The .h5 file where the data has been stored.
+    lazy_acess: bool
+                If True, does not load the whole dataset into the machine memory. If False, it does
+                not load the whole .h5 file into the memory and acess the data for a given index.
+    number_of_trajectories: int
+                            If lazy_acess is True, the number of trajectories from your dataset (you
+                            must know it a priori). If lazy_acess is False, the number of trajectories
+                            you want to load into the machine memory.
+
+    Returns
+    -------
+    tuple
+        (position(t), momentum(t), scalar drift variable(t), control(t), excitation position), state(t+1) 
+                
+    """
+
     def __init__(
+            
             self, 
             h5path: str, 
             lazy_access: bool,
-            number_of_trajectories: int            
+            number_of_trajectories: int  
+
         ):
 
-        """
-        A Dataset class that gives as input the states, scalar drift variable and control for a given
-        instance t; and as output, the states, scalar drift variable and control for the next instance.
+        assert isinstance(h5path, str), f'"h5path" variable must be a str'
+        assert isinstance(lazy_access, bool), f'"lazy_access" variable must be a bool'
+        assert isinstance(number_of_trajectories, int), f'"number_of_trajectories" variable must be a int'
 
-        Parameters
-        ----------
-        h5path: str
-                The .h5 file where the data has been stored.
-        lazy_acess: bool
-                    If True, does not load the whole dataset into the machine memory. If False, it does
-                    not load the whole .h5 file into the memory and acess the data for a given index.
-        number_of_trajectories: int
-                                If lazy_acess is True, the number of trajectories from your dataset (you
-                                must know it a priori). If lazy_acess is False, the number of trajectories
-                                you want to load into the machine memory.
-
-        Returns
-        -------
-        tuple
-            (position(t), momentum(t), scalar drift variable(t), control(t), excitation position), state(t+1) 
-                 
-        """
         self.h5path = h5path
         self.lazy_access = lazy_access
         self.file = None  # will be opened lazily per worker.
