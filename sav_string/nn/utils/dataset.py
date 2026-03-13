@@ -11,15 +11,18 @@ class H5TimeShiftDataset(Dataset):
 
     Parameters
     ----------
-    h5path: str
-            The .h5 file where the data has been stored.
-    lazy_acess: bool
-                If True, does not load the whole dataset into the machine memory. If False, it does
-                not load the whole .h5 file into the memory and acess the data for a given index.
-    number_of_trajectories: int
-                            If lazy_acess is True, the number of trajectories from your dataset (you
-                            must know it a priori). If lazy_acess is False, the number of trajectories
-                            you want to load into the machine memory.
+    h5path : str
+        The .h5 file where the data has been stored.
+    lazy_acess : bool
+        If True, does not load the whole dataset into the machine memory. If False, it does
+        not load the whole .h5 file into the memory and acess the data for a given index.
+    number_of_trajectories : int
+        If lazy_acess is True, the number of trajectories from your dataset (you
+        must know it a priori). If lazy_acess is False, the number of trajectories
+        you want to load into the machine memory.
+    estimate_sav : bool
+        If False, it loads the real scalar auxiliary variable (SAV) from the generation.
+        If True, an estimation of the SAV is done as r_est = (q_(n+1/2) - q_(n-1/2)) / 2.
 
     Returns
     -------
@@ -33,16 +36,19 @@ class H5TimeShiftDataset(Dataset):
             self, 
             h5path: str, 
             lazy_access: bool,
-            number_of_trajectories: int  
+            number_of_trajectories: int,
+            estimate_sav: bool = False
 
         ):
 
         assert isinstance(h5path, str), f'"h5path" variable must be a str'
         assert isinstance(lazy_access, bool), f'"lazy_access" variable must be a bool'
         assert isinstance(number_of_trajectories, int), f'"number_of_trajectories" variable must be a int'
+        assert isinstance(estimate_sav, bool), f'"estimate_sav" variable must be a bool'
 
         self.h5path = h5path
         self.lazy_access = lazy_access
+        self.estimate_sav = estimate_sav
         self.file = None  # will be opened lazily per worker.
 
         if not lazy_access:
@@ -73,26 +79,40 @@ class H5TimeShiftDataset(Dataset):
         return self.N * (self.T - 1)
 
     def __getitem__(self, idx):
+
         n_idx = idx // (self.T - 1)
         t_idx = idx % (self.T - 1)
 
         if not self.lazy_access:
+
             # Select from the already loaded dataset.
             q = self.state_data[n_idx, t_idx, :self.n]
             p = self.state_data[n_idx, t_idx, self.n:self.n * 2]
-            r = self.state_data[n_idx, t_idx, -2].unsqueeze(-1)
+
+            if not self.estimate_sav:
+                r = self.state_data[n_idx, t_idx, -2].unsqueeze(-1)
+            else:
+                r = (self.state_data[n_idx, t_idx + 1, :self.n] + self.state_data[n_idx, t_idx, :self.n]) / 2
+
             u = self.state_data[n_idx, t_idx, -1]
             exc_position = self.exc_data[n_idx]
             y = self.state_data[n_idx, t_idx + 1, :-2]
+
         else:
+
             self._init_file()
 
             state = torch.from_numpy(self.file['states'][n_idx, t_idx]).float()
             y = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :-2]).float()
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
-            
-            q, p, r, u = (state[:self.n], state[self.n:self.n * 2], 
-                          state[-2].unsqueeze(-1), state[-1]) 
+
+            q, p, u = state[:self.n], state[self.n:self.n * 2], state[-1]
+
+            if not self.estimate_sav:
+                r = state[-2].unsqueeze(-1)
+            else:
+                qnext = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :self.n]).float()
+                r = (q + qnext) / 2
 
         # Returns the (states(t), sav(t), control(t), exciting position), states(t+1)
         return (q, p, r, u, exc_position), y

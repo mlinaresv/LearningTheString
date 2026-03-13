@@ -35,13 +35,19 @@ class SAVSolver():
         return - self.lambda0 * self.epsilon * self.lib.sign(p) / (M * (self.lib.sum(self.lib.abs(p)) + self.Num_eps))
 
     
-    def time_step(self, qlast, plast, rn, unow, excitation_position):
+    def time_step(self, qlast, plast, rn, unow, excitation_position, train=False):
         """ Returns the next state by solving (19a-h). """
+
         J0, M, Rmid = self.model.build_matrices()
+        
         # qlast = q^{n-1/2}; qnow = q^{n+1/2}; rn=rn; unow=u^{n+1/2}.
         qnext = qlast + self.dt * (J0 * (M * plast))
+
         # Estimation of the auxiliary variable during training.model = String(sr=sr, **string_parameters)
-        gn = self.g(qnext, J0) + self.g_mod((qnext + qlast) / 2, plast, rn, M)
+        gn = self.g(qnext, J0)
+        if not train:
+            gn += self.g_mod((qnext + qlast) / 2, plast, rn, M)
+
         # Define an intermediate quantity
         A0_inv = 2 * self.dt / ((2 / M + Rmid * self.dt) + self.Num_eps)
         A0inv_g = A0_inv * gn

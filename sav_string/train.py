@@ -63,6 +63,9 @@ def train(
         for i, (x_batch, y_batch) in enumerate(train_loader):
             # Initialize each of the variables for the SAV algorithm mixed with the training.
             q, p, r, u, exc_pos = [t.to(device) for t in x_batch]
+
+            if train_dataset.estimate_sav:
+                r = torch.sqrt(model.Enl(r) + 1e-14)
             
             # Define the ground truth (i.e. the state at time t+1).
             state_n_1 = y_batch 
@@ -71,7 +74,7 @@ def train(
             optimizer.zero_grad()
 
             # Compute the next state.
-            qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos)
+            qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos, train=True)
             preds = torch.concat((qnext, pnext), axis=-1)
             loss = criterion(preds, state_n_1) / (solver.dt)
             assert not torch.isnan(loss)
@@ -124,6 +127,9 @@ def train(
         # Validation loop.
         for x_batch_val, y_batch_val in val_loader:
             q_val, p_val, r_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
+
+            if train_dataset.estimate_sav:
+                r_val = torch.sqrt(model.Enl(r_val))
 
             # Define the validation groung truth (i.e. the state at time t+1)
             state_n_1_val = y_batch_val

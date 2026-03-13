@@ -36,14 +36,18 @@ def main(config_path='test_configuration.yaml'):
 
     # Define the datasets and dataloaders.
     print('--> Building the training and validation dataset...')
+
     train_dataset = H5TimeShiftDataset(
         h5path=config["data"]["training_dataset_path"], 
         number_of_trajectories=config["data"]["training_number_of_trajectories"],
-        lazy_access=config["data"]["training_lazy_access"])
+        lazy_access=config["data"]["training_lazy_access"],
+        estimate_sav=config["data"]["training_estimate_sav"])
+
     val_dataset = H5TimeShiftDataset(
         h5path=config["data"]["validation_dataset_path"], 
         number_of_trajectories=config["data"]["validation_number_of_trajectories"],
-        lazy_access=config["data"]["validation_lazy_access"])
+        lazy_access=config["data"]["validation_lazy_access"],
+        estimate_sav=config["data"]["validation_estimate_sav"])
 
     # Define the PHNNString model.
     print('--> Defining the model...')
