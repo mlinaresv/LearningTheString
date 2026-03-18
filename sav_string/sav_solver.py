@@ -43,6 +43,9 @@ class SAVSolver():
         # qlast = q^{n-1/2}; qnow = q^{n+1/2}; rn=rn; unow=u^{n+1/2}.
         qnext = qlast + self.dt * (J0 * (M * plast))
 
+        if rn is None:
+            rn = torch.sqrt(self.model.Enl((qnext + qlast) / 2) + 1e-14)
+        
         # Estimation of the auxiliary variable during training.model = String(sr=sr, **string_parameters)
         gn = self.g(qnext, J0)
         if not train:
@@ -82,6 +85,26 @@ class SAVSolver():
         rnext_term = self.lib.dot(gn, rnext_term_) if self.lib_str == 'numpy' else torch.einsum('... j, ... j -> ...', gn, rnext_term_).unsqueeze(1)
         rnext = rn + self.dt * rnext_term
         return qnext, pnext, rnext
+
+
+    def multi_time_step(self, estimator, q0, unow, excitation_position, train, n_steps):
+
+        # Estimate the full position state. 
+        q0_, p0_ = estimator(q0)
+        rn = None
+        qlast, plast = q0_, p0_
+
+        for i in range(n_steps):
+
+            q_prev, p_prev = qlast, plast 
+
+            qnext, pnext, rnext = self.time_step(qlast, plast, rn, unow[..., i, :], excitation_position, train=train)
+
+            # Load the variables for the next iteration.
+            rn = rnext
+            qlast, plast = qnext, pnext
+
+        return qnext, pnext, q_prev, p_prev
 
 
     def integrate(self, q0, p0, u_func, duration, excitation_position):

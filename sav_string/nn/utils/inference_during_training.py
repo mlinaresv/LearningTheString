@@ -9,6 +9,8 @@ import librosa.display
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
 from sav_string.nn.phnn_string import PHNNString
+from sav_string.nn.nonlinear_operator_net import StateEstimator
+from torch.utils.tensorboard import SummaryWriter
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 
 
@@ -74,7 +76,7 @@ def make_spectrogram_image(
         
         signal: np.ndarray, 
         sr: int,
-        ylim: list | tuple = (0, 6000)
+        ylim: list | tuple = (0, 10000)
         
     ) -> matplotlib.figure.Figure:
 
@@ -100,7 +102,7 @@ def make_spectrogram_image(
     assert len(ylim) == 2, f'"ylim" variable must be of length 2' 
 
     # STFT
-    S = librosa.stft(signal)
+    S = librosa.stft(signal, n_fft=8192, hop_length=1024)
     S_db = librosa.amplitude_to_db(abs(S))
 
     fig = plt.figure()
@@ -160,7 +162,7 @@ def compute_non_linear_energy_error(
 
 def write_constant_parameters_errors(
         
-        writer: torch.utils.tensorboard.writer.SummaryWriter, 
+        writer: SummaryWriter, 
         model: PHNNString, 
         index: int
 
@@ -172,7 +174,7 @@ def write_constant_parameters_errors(
 
     Parameters
     ----------
-    writer : torch.utils.tensorboard.writer.SummaryWriter
+    writer : SummaryWriter
         Writer object where the information is loaded.
     model : PHNNString
         Neural model of the string.
@@ -180,7 +182,7 @@ def write_constant_parameters_errors(
         Writing index.
     """
 
-    assert isinstance(writer, torch.utils.tensorboard.writer.SummaryWriter), f'"writer" variable must be a torch.utils.tensorboard.writer.SummaryWriter'
+    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
     assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
     assert isinstance(index, int), f'"index" variable must be a int'
 
@@ -214,7 +216,7 @@ def write_constant_parameters_errors(
 
 def write_stability_conditions(
         
-        writer: torch.utils.tensorboard.writer.SummaryWriter, 
+        writer: SummaryWriter, 
         model: PHNNString, 
         index: int, 
         sr: int
@@ -227,7 +229,7 @@ def write_stability_conditions(
 
     Parameters
     ----------
-    writer : torch.utils.tensorboard.writer.SummaryWriter
+    writer : SummaryWriter
         Writer object where the information is loaded.
     model : PHNNString
         Neural model of the string.
@@ -237,7 +239,7 @@ def write_stability_conditions(
         Sample rate from the SAV numerical solver.   
     """
 
-    assert isinstance(writer, torch.utils.tensorboard.writer.SummaryWriter), f'"writer" variable must be a torch.utils.tensorboard.writer.SummaryWriter'
+    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
     assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
     assert isinstance(index, int), f'"index" variable must be a int'
     assert isinstance(sr, int), f'"sr" variable must be a int'
@@ -250,3 +252,46 @@ def write_stability_conditions(
 
     # Non-quadratic energy parameter.
     writer.add_scalar("Stability/h-condition", (model.h - h_min).item(), index)
+
+
+
+def write_model_gradients(
+        
+        writer: SummaryWriter,
+        model: PHNNString | StateEstimator,
+        index: int,
+        label: str
+
+) -> None:
+    
+    """
+    Computes and writes the total norm of the model's gradients.
+
+    Parameters
+    ----------
+    writer : SummaryWriter
+        Writer object where the information is loaded.
+    model : PHNNString | StateEstimator
+        Neural model of the string.
+    index : int
+        Writing index.
+    label : str
+        Label to distinguish the type of model.
+    """
+    
+    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
+    assert isinstance(model, PHNNString) or isinstance(model, StateEstimator), f'"model" variable must be a PHNNString or a StateEstimator'
+    assert isinstance(index, int), f'"index" variable must be a int'
+    assert isinstance(label, str), f'"label" variable must be a str'
+
+    # Compute the gradient norms.
+    total_linear_norm = 0.0
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            for param in module.parameters():
+                if param.grad is not None:
+                    total_linear_norm += param.grad.norm().item()
+                else:
+                    warnings.warn("There are some model parameters whose .grad attribute is None!", RuntimeWarning)
+                    
+    writer.add_scalar(f"Gradients/{label}Model", total_linear_norm, index)

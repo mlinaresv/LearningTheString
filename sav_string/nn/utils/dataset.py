@@ -1,7 +1,9 @@
 import gc
+import math
 import h5py
 import torch
 from torch.utils.data import Dataset
+
 
 class H5TimeShiftDataset(Dataset):
 
@@ -23,6 +25,12 @@ class H5TimeShiftDataset(Dataset):
     estimate_sav : bool
         If False, it loads the real scalar auxiliary variable (SAV) from the generation.
         If True, an estimation of the SAV is done as r_est = (q_(n+1/2) - q_(n-1/2)) / 2.
+    estimate_positions : bool
+        If False, we access the whole position information from the dataset.
+        If True, we place ourselves in the experimental setting, where only the position data at a 
+        given index is known.
+    n_steps : int
+        The number of numerical steps done during the training of the models.
 
     Returns
     -------
@@ -37,7 +45,9 @@ class H5TimeShiftDataset(Dataset):
             h5path: str, 
             lazy_access: bool,
             number_of_trajectories: int,
-            estimate_sav: bool = False
+            estimate_sav: bool = False,
+            estimate_positions: bool = False,
+            n_steps: int = 1
 
         ):
 
@@ -45,13 +55,21 @@ class H5TimeShiftDataset(Dataset):
         assert isinstance(lazy_access, bool), f'"lazy_access" variable must be a bool'
         assert isinstance(number_of_trajectories, int), f'"number_of_trajectories" variable must be a int'
         assert isinstance(estimate_sav, bool), f'"estimate_sav" variable must be a bool'
+        assert isinstance(estimate_positions, bool), f'"estimate_positions" variable must be a bool'
+        assert isinstance(n_steps, int), f'"n_steps" variable must be a int'
+
+        if estimate_sav:
+            assert not estimate_positions, f"variable 'estimate_positions' can not be True if variable 'estimate_sav' is True"
 
         self.h5path = h5path
         self.lazy_access = lazy_access
         self.estimate_sav = estimate_sav
+        self.estimate_positions = estimate_positions
+        self.n_steps = n_steps
         self.file = None  # will be opened lazily per worker.
 
         if not lazy_access:
+
             # Loads the desired number of trajectories into the memory.
             with h5py.File(h5path, 'r') as f:
                 self.state_data = torch.from_numpy(f['states'][:number_of_trajectories]).float()
@@ -61,6 +79,7 @@ class H5TimeShiftDataset(Dataset):
             self.n = (self.D - 2) // 2
         
         else:
+
             # Loads a sample trajectory to get the last two dimensions.
             with h5py.File(h5path, 'r') as f:
                 shape = f['states'].shape
@@ -71,48 +90,94 @@ class H5TimeShiftDataset(Dataset):
             self.n = (self.D - 2) // 2
             self._init_file()
 
+        # If 'estimate_positions' is True, the index from which we have access to the position information.
+        self.index = int((math.sqrt(2) / 2) * self.n)  # Represents the point where the experimental measure is taken.
+
+
     def _init_file(self):
         if self.file is None:
             self.file = h5py.File(self.h5path, 'r')
 
+
     def __len__(self):
-        return self.N * (self.T - 1)
+        return self.N * (self.T - self.n_steps)
+
 
     def __getitem__(self, idx):
 
-        n_idx = idx // (self.T - 1)
-        t_idx = idx % (self.T - 1)
+        n_idx = idx // (self.T - self.n_steps)
+        t_idx = idx % (self.T - self.n_steps)
+
 
         if not self.lazy_access:
 
             # Select from the already loaded dataset.
-            q = self.state_data[n_idx, t_idx, :self.n]
-            p = self.state_data[n_idx, t_idx, self.n:self.n * 2]
-
-            if not self.estimate_sav:
-                r = self.state_data[n_idx, t_idx, -2].unsqueeze(-1)
-            else:
-                r = (self.state_data[n_idx, t_idx + 1, :self.n] + self.state_data[n_idx, t_idx, :self.n]) / 2
-
-            u = self.state_data[n_idx, t_idx, -1]
+            state = self.state_data[n_idx, t_idx: t_idx + self.n_steps]
+            y = self.state_data[n_idx, t_idx + self.n_steps, :-2]
             exc_position = self.exc_data[n_idx]
-            y = self.state_data[n_idx, t_idx + 1, :-2]
+
+            # Get the position
+            q = self.state_data[..., :self.n] if not self.estimate_positions else state[..., self.index]
+            # Get the momentum.
+            p = self.state_data[..., self.n:self.n * 2]
+            # Get the control.
+            u = self.state_data[..., -1].unsqueeze(-1)
+            # Get the output.
+            if self.estimate_positions:
+                y = y[..., :self.n]
+
+            if not self.estimate_positions:
+
+                if not self.estimate_sav:
+                    r = self.state_data[..., -2].unsqueeze(-1)
+                else:
+                    r = (self.state_data[n_idx, t_idx + 1, :self.n] + self.state_data[n_idx, t_idx, :self.n]) / 2
+
+                # Returns the (states(t), sav(t), control(t), exciting position), states(t+1)
+                return (q, p, r, u, exc_position), y 
+            
+            else:
+                return (q, p, u, exc_position), y
+
 
         else:
 
             self._init_file()
 
+            # Load the states (inputs), the outputs and the excitation position.
             state = torch.from_numpy(self.file['states'][n_idx, t_idx]).float()
-            y = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :-2]).float()
+            y = torch.from_numpy(self.file['states'][n_idx, t_idx + self.n_steps, :-2]).float()
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
+            
+            # Get the control.
+            u = state[..., -1].unsqueeze(-1)
 
-            q, p, u = state[:self.n], state[self.n:self.n * 2], state[-1]
+            if not self.estimate_positions:
 
-            if not self.estimate_sav:
-                r = state[-2].unsqueeze(-1)
+                # Get the position.
+                q = state[..., :self.n]
+                
+                # Get the momentum.
+                p = state[..., self.n:self.n * 2]
+
+                if not self.estimate_sav:
+                    r = state[-2].unsqueeze(-1)
+                else:
+                    qnext = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :self.n]).float()
+                    r = (q + qnext) / 2
+
+                # Returns the (states(t), sav(t), control(t), exciting position), states(t+1)
+                return (q, p, r, u, exc_position), y
+            
             else:
-                qnext = torch.from_numpy(self.file['states'][n_idx, t_idx + 1, :self.n]).float()
-                r = (q + qnext) / 2
 
-        # Returns the (states(t), sav(t), control(t), exciting position), states(t+1)
-        return (q, p, r, u, exc_position), y
+                # Get the position.
+                q = state[..., self.index].unsqueeze(-1)
+
+                # The output is only the position at a given index.
+                y = y[..., self.index]
+
+                return (q, u, exc_position), y
+
+
+        

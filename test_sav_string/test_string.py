@@ -6,6 +6,7 @@ sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.fd_string_model import String
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory, generate_video_from_trajectory
+from sav_string.nn.utils.inference_during_training import make_spectrogram_image
 
 # Define the simulation parameters.
 sr = 88200
@@ -13,7 +14,7 @@ initial_position_type = 'zero'
 amplitude_initial_position = 8e-3
 control_type = 'pluck'
 pluck_duration = 1e-3                 # Pluck duration [5-30ms]
-pluck_amplitude = 5                   # Pluck amplitude interval [0.1-5N]
+pluck_amplitude = 160                  # Pluck amplitude interval [0.1-5N]
 duration = 2
 type_of_data_returned = 'audio'
 
@@ -57,8 +58,7 @@ if __name__ == '__main__':
     pluck_position = int(random.uniform(a=pluck_position_interval[0], b=pluck_position_interval[1]) * model.N)
 
     p_trajectory, q_trajectory, r_trajectory = solver.integrate(
-        qlast0=q0,
-        qnext0=q0,
+        q0=q0,
         p0=p0,
         u_func=u_func,
         duration=duration,
@@ -70,4 +70,9 @@ if __name__ == '__main__':
         generate_video_from_trajectory(p_trajectory)
     elif type_of_data_returned == 'audio':
         listen_to_a_trajectory(p_trajectory, sr, filename='test_string')
+
+    pmid_ref = p_trajectory[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)]
+    spec = make_spectrogram_image(pmid_ref, sr)
+    spec.savefig(f'test_spectrogram.pdf')
+    plt.close(spec)
     

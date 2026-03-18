@@ -1,5 +1,6 @@
 import copy
 import torch
+import warnings
 import numpy as np
 import torch.nn as nn
 from tqdm import tqdm
@@ -8,7 +9,12 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
-from sav_string.nn.utils.inference_during_training import inference_during_training, make_spectrogram_image, compute_non_linear_energy_error, write_constant_parameters_errors, write_stability_conditions
+from sav_string.nn.utils.inference_during_training import (inference_during_training, 
+                                                           make_spectrogram_image, 
+                                                           compute_non_linear_energy_error, 
+                                                           write_constant_parameters_errors, 
+                                                           write_stability_conditions,
+                                                           write_model_gradients)
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):
@@ -22,6 +28,7 @@ def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_si
 def train( 
         sr,
         model,
+        estimator,
         train_dataset, 
         val_dataset, 
         train_batch_size: int,
@@ -43,12 +50,16 @@ def train(
     train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size)
 
     model.to(device)
+    estimator.to(device)
 
     # Loss 
     criterion = nn.L1Loss()
 
     # Optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(
+        list(model.parameters()) + list(estimator.parameters()),
+        lr=lr
+    )
 
     # TensorBoard
     writer = SummaryWriter(log_dir=log_dir)
@@ -57,16 +68,14 @@ def train(
 
         # Prepare setting for training.
         model.train()
+        estimator.train()
         training_running_loss = 0.0
 
-        # Training loop.
+        # ###### TRAINING ######
         for i, (x_batch, y_batch) in enumerate(train_loader):
-            # Initialize each of the variables for the SAV algorithm mixed with the training.
-            q, p, r, u, exc_pos = [t.to(device) for t in x_batch]
 
-            if train_dataset.estimate_sav:
-                r = torch.sqrt(model.Enl(r) + 1e-14)
-            
+            ###### FORWARD PASS ######
+
             # Define the ground truth (i.e. the state at time t+1).
             state_n_1 = y_batch 
             state_n_1 = state_n_1.to(device)
@@ -74,9 +83,31 @@ def train(
             optimizer.zero_grad()
 
             # Compute the next state.
-            qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos, train=True)
-            preds = torch.concat((qnext, pnext), axis=-1)
+            if not train_dataset.estimate_positions:
+
+                q, p, r, u, exc_pos = [t.to(device) for t in x_batch]
+
+                if train_dataset.estimate_sav:
+                    r = torch.sqrt(model.Enl(r) + 1e-14)
+                qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos, train=True)
+                preds = torch.concat((qnext, pnext), axis=-1)
+
+            else:
+                
+                q, u, exc_pos = [t.to(device) for t in x_batch]
+                qnext, pnext, q_prev, p_prev = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
+                preds = qnext[..., train_dataset.index]
+
+
+            ###### LOSS COMPUTATION AND BACKPROPAGATION ######
             loss = criterion(preds, state_n_1) / (solver.dt)
+            
+            assert not torch.isnan(loss)
+
+            if not train_dataset.estimate_positions:
+                regularization_loss = criterion(model.rhol * (qnext - q_prev) / solver.dt, p_prev)
+                loss += regularization_loss
+
             assert not torch.isnan(loss)
 
             loss.backward()
@@ -85,10 +116,13 @@ def train(
 
             training_running_loss += loss.item() * state_n_1.size(0)
 
-            # Log every n updates
+
+            ###### LOGGING ######
             if epoch % log_each_n_epochs == 0:
+
                 if i % log_each_n_updates == 0:
-                    # Log the loss in TensorBoard and save a model checkpoint.
+
+                    ###### MODEL CHECKPOINT ######
                     index = (epoch - 1) * len(train_loader) + i
                     writer.add_scalar("Train/Loss", loss, index)
                     torch.save({
@@ -99,15 +133,10 @@ def train(
                         "loss": loss,
                     }, f"./{log_dir}/checkpoint.pth")
 
-                    # Compute the gradient norms.
-                    total_linear_norm = 0.0
-                    for module in solver.model.modules():
-                        if isinstance(module, nn.Linear):
-                            for param in module.parameters():
-                                if param.grad is not None:
-                                    total_linear_norm += param.grad.norm().item()
-                    writer.add_scalar("Gradients/NonQuadraticModel", total_linear_norm, index)
-
+                    # Compute and plot the gradient norms from the non-quadratic model.
+                    write_model_gradients(writer, solver.model, index, label='NonQuadratic')
+                    # Compute and plot the gradient norms from the estimator model.
+                    write_model_gradients(writer, estimator, index, label='Estimator')
                     # Write in TensorBoard the errors of the constant parameters.
                     write_constant_parameters_errors(writer, model, index)
                     # Write in Tensorboard the stability conditions.
@@ -121,34 +150,59 @@ def train(
 
         ###### VALIDATION ######
         model.eval()
+        estimator.eval()
         q_validation_running_loss = 0.0
         p_validation_running_loss = 0.0
 
         # Validation loop.
         for x_batch_val, y_batch_val in val_loader:
-            q_val, p_val, r_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
-
-            if train_dataset.estimate_sav:
-                r_val = torch.sqrt(model.Enl(r_val))
 
             # Define the validation groung truth (i.e. the state at time t+1)
             state_n_1_val = y_batch_val
             state_n_1_val = state_n_1_val.to(device)
 
-            # Compute the next state.
-            qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
-            # Compute the position and momentum losses.
-            q_loss_val = criterion(qnext_val, state_n_1_val[..., :model.N])
-            p_loss_val = criterion(pnext_val, state_n_1_val[..., model.N:])
+            if not val_dataset.estimate_positions:
 
-            q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
-            p_validation_running_loss += p_loss_val.item() * state_n_1_val.size(0)
+                q_val, p_val, r_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
+
+                if val_dataset.estimate_sav:
+                    r_val = torch.sqrt(model.Enl(r_val))            
+
+                # Compute the next state.
+                qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
+                
+                # Compute the position and momentum losses.
+                q_loss_val = criterion(qnext_val, state_n_1_val[..., :model.N])
+                p_loss_val = criterion(pnext_val, state_n_1_val[..., model.N:])
+
+                q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
+                p_validation_running_loss += p_loss_val.item() * state_n_1_val.size(0)
+
+
+            else:
+
+                q_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
+
+                qnext_val, pnext_val, q_prev_val, p_prev_val = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
+                preds_val = qnext_val[..., train_dataset.index]
+
+                q_loss_val = criterion(preds_val, state_n_1_val) 
+                assert not torch.isnan(q_loss_val)
+
+                if not train_dataset.estimate_positions:
+                    regularization_val_loss = criterion(model.rhol * (qnext_val - q_prev_val) / solver.dt, p_prev_val)
+                    q_loss_val += regularization_val_loss
+                    assert not torch.isnan(q_loss_val)
+
+                q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
 
         # Total validation loss.
         q_validation_loss = q_validation_running_loss / len(val_loader.dataset)
-        p_validation_loss = p_validation_running_loss / len(val_loader.dataset)
         writer.add_scalar("Validation/PositionLoss", q_validation_loss, epoch)
-        writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
+        if not val_dataset.estimate_positions:
+            p_validation_loss = p_validation_running_loss / len(val_loader.dataset)
+            writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
+
 
 
         ###### INFERENCE ######

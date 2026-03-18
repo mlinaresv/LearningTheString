@@ -10,6 +10,7 @@ from sav_string.train import train, build_dataloaders
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.nn.nonlinear_operator_net import StateEstimator
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -38,20 +39,31 @@ def main(config_path='test_configuration.yaml'):
     print('--> Building the training and validation dataset...')
 
     train_dataset = H5TimeShiftDataset(
+
         h5path=config["data"]["training_dataset_path"], 
         number_of_trajectories=config["data"]["training_number_of_trajectories"],
         lazy_access=config["data"]["training_lazy_access"],
-        estimate_sav=config["data"]["training_estimate_sav"])
+        estimate_sav=config["data"]["training_estimate_sav"],
+        estimate_positions=config["data"]["training_estimate_positions"],
+        n_steps=config["data"]["training_n_steps"]
+        
+    )
 
     val_dataset = H5TimeShiftDataset(
+
         h5path=config["data"]["validation_dataset_path"], 
         number_of_trajectories=config["data"]["validation_number_of_trajectories"],
         lazy_access=config["data"]["validation_lazy_access"],
-        estimate_sav=config["data"]["validation_estimate_sav"])
+        estimate_sav=config["data"]["validation_estimate_sav"],
+        estimate_positions=config["data"]["validation_estimate_positions"],
+        n_steps=config["data"]["validation_n_steps"]
+        
+    )
 
     # Define the PHNNString model.
     print('--> Defining the model...')
     model = PHNNString(
+
         N=config["model"]["N"], 
         h=config["model"]["h"], 
         hidden_dim=config["model"]["hidden_dim"],
@@ -64,7 +76,20 @@ def main(config_path='test_configuration.yaml'):
         learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
         learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
         true_string_parameters=config["model"]["true_string_parameters"]
+
     ).to(device)
+    print(f'--> Model with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters loaded!')
+
+    # Define the state estimator.
+    print('--> Define the estimator...')
+    estimator = StateEstimator(
+
+        hidden_dim=config["estimator"]["hidden_dim"],
+        n=train_dataset.n,
+        index=train_dataset.index
+
+    ).to(device)
+    print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
 
     # Determine the logging directory.
     log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
@@ -76,8 +101,10 @@ def main(config_path='test_configuration.yaml'):
 
     # Train the model.
     train(
+
         sr=config["train"]["sampling_rate"],
         model=model,
+        estimator=estimator,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         train_batch_size=config["train"]["training_batch_size"],
@@ -90,6 +117,7 @@ def main(config_path='test_configuration.yaml'):
         log_dir=log_dir,
         test_audio_duration=config["train"]["test_audio_duration"],
         test_q_interval=config["train"]["test_q_interval"]
+
     )
 
 if __name__ == '__main__':

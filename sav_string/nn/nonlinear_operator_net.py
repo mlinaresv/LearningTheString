@@ -14,33 +14,50 @@ class LearnableDiff(nn.Module):
     learnable_filter : bool
         If True, the convolutional filter is a nn.Parameter. If False, the convolutional
         filter is fixed.
+    kernel_dim : int
+        The dimension of the kernel filter that approximates the spatial operator.
     """
 
     def __init__(
             
             self, 
             h: float = 1.0, 
-            learnable_filter: bool = True
+            learnable_filter: bool = True,
+            kernel_dim: int = 2
 
         ):
 
         assert isinstance(h, float), f'"h" variable must be a float'
-        assert isinstance(learnable_filter, bool), f'"learnable_filter" variable must be a int'
+        assert isinstance(learnable_filter, bool), f'"learnable_filter" variable must be a bool'
+        assert isinstance(kernel_dim, int), f'"kernel_dim" variable must be a int'
 
         super().__init__()
+
+        self.kernel_dim = kernel_dim
 
         # Initialize a 1D convolutional filter.
         self.conv = nn.Conv1d(
 
             in_channels=1,
             out_channels=1,
-            kernel_size=2,
+            kernel_size=kernel_dim,
             bias=False
 
         )
 
         # Weights are initialized so as to model the backward finite difference operator.
-        kernel = torch.tensor([[1.0/h, -1.0/h]]).view(1, 1, 2)
+        if kernel_dim == 2:
+
+            kernel = torch.tensor([[1.0/h, -1.0/h]]).view(1, 1, 2)
+
+        elif kernel_dim == 3:
+
+            kernel = torch.tensor([[1.0/(2 * h), 0, -1.0/(2 * h)]]).view(1, 1, 3)
+
+        else:
+
+            raise ValueError(f'"kernel_dim" variable must be either 2 or 3')
+        
         self.conv.weight.data = kernel
 
         if not learnable_filter:
@@ -86,7 +103,7 @@ class LearnableEnergy(nn.Module):
         
         ):
 
-        assert isinstance(hidden_dim, int), f'"h" variable must be a int'
+        assert isinstance(hidden_dim, int), f'"hidden_dim" variable must be a int'
         assert isinstance(h, float), f'"h" variable must be a float'
         assert isinstance(learnable_filter, bool), f'"learnable_filter" variable must be a int'
 
@@ -122,4 +139,70 @@ class LearnableEnergy(nn.Module):
         per_element = self.mlp(features) ** 2
 
         # Sum local energies to obtain the total one.
-        return per_element.sum(dim=1)
+        sum = per_element.sum(dim=1)
+        return sum
+    
+
+class StateEstimator(nn.Module):
+
+    """
+    A nn.Module class that estimates the full position and momentum state from a partial position observation.
+
+    Parameters
+    ----------
+    hidden_dim : int
+        Hidden dimension of the hidden layers from the MLP estimator.
+    n : int
+        Number of states from the problem, which must be even because of Hamiltonian dynamics.
+    index : int
+        Given position where the position is measured alongside the string.
+
+    Returns
+    -------
+    tuple
+        (estimated_q, estimated_p)
+    """
+
+    def __init__(
+            
+            self, 
+            hidden_dim: int, 
+            n: int,
+            index: int
+
+        ):
+
+        assert isinstance(hidden_dim, int), f'"hidden_dim" variable must be a int'
+        assert isinstance(n, int), f'"n" variable must be a int'
+        assert isinstance(index, int), f'"index" variable must be a int'
+
+        super().__init__()
+
+        self.hidden_dim = hidden_dim
+        self.n = n
+        self.index = index
+
+        # Define the estimator network.
+        self.estimator = nn.Sequential(
+
+            nn.Linear(1, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, 2 * n - 1),
+
+        )
+
+    def forward(self, q):
+        
+        # From a position 'q' at a given index, estimates the other positions in the string.
+        estimated_states = self.estimator(q)
+
+        return torch.cat(
+            [
+                estimated_states[..., :self.index], 
+                q, 
+                estimated_states[..., self.index:self.n-1]
+            ], 
+            dim=-1
+        ), estimated_states[..., self.n-1:]
