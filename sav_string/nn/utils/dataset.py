@@ -31,6 +31,8 @@ class H5TimeShiftDataset(Dataset):
         given index is known.
     n_steps : int
         The number of numerical steps done during the training of the models.
+    temporal_window_size : int
+        The number of position values seen before doing the state estimation.
 
     Returns
     -------
@@ -47,7 +49,8 @@ class H5TimeShiftDataset(Dataset):
             number_of_trajectories: int,
             estimate_sav: bool = False,
             estimate_positions: bool = False,
-            n_steps: int = 1
+            n_steps: int = 1,
+            temporal_window_size: int = 1
 
         ):
 
@@ -57,6 +60,7 @@ class H5TimeShiftDataset(Dataset):
         assert isinstance(estimate_sav, bool), f'"estimate_sav" variable must be a bool'
         assert isinstance(estimate_positions, bool), f'"estimate_positions" variable must be a bool'
         assert isinstance(n_steps, int), f'"n_steps" variable must be a int'
+        assert isinstance(temporal_window_size, int), f'"temporal_window_size" variable must be a int'
 
         if estimate_sav:
             assert not estimate_positions, f"variable 'estimate_positions' can not be True if variable 'estimate_sav' is True"
@@ -66,6 +70,7 @@ class H5TimeShiftDataset(Dataset):
         self.estimate_sav = estimate_sav
         self.estimate_positions = estimate_positions
         self.n_steps = n_steps
+        self.temporal_window_size = temporal_window_size
         self.file = None  # will be opened lazily per worker.
 
         if not lazy_access:
@@ -100,19 +105,21 @@ class H5TimeShiftDataset(Dataset):
 
 
     def __len__(self):
-        return self.N * (self.T - self.n_steps)
+        return self.N * (self.T - self.n_steps - self.temporal_window_size + 1)
 
 
     def __getitem__(self, idx):
 
-        n_idx = idx // (self.T - self.n_steps)
-        t_idx = idx % (self.T - self.n_steps)
+        n_idx = idx // (self.T - self.n_steps - self.temporal_window_size + 1)
+        t_idx = idx % (self.T - self.n_steps - self.temporal_window_size + 1)
+
+        t_idx = t_idx + self.temporal_window_size - 1
 
 
         if not self.lazy_access:
 
             # Select from the already loaded dataset.
-            state = self.state_data[n_idx, t_idx: t_idx + self.n_steps]
+            state = self.state_data[n_idx, t_idx - self.temporal_window_size + 1: t_idx + self.n_steps]
             y = self.state_data[n_idx, t_idx + self.n_steps, :-2]
             exc_position = self.exc_data[n_idx]
 
@@ -145,12 +152,12 @@ class H5TimeShiftDataset(Dataset):
             self._init_file()
 
             # Load the states (inputs), the outputs and the excitation position.
-            state = torch.from_numpy(self.file['states'][n_idx, t_idx]).float()
+            state = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 1: t_idx + 1]).float()
             y = torch.from_numpy(self.file['states'][n_idx, t_idx + self.n_steps, :-2]).float()
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
             
             # Get the control.
-            u = state[..., -1].unsqueeze(-1)
+            u = state[..., -1, -1].unsqueeze(-1)
 
             if not self.estimate_positions:
 
@@ -172,7 +179,7 @@ class H5TimeShiftDataset(Dataset):
             else:
 
                 # Get the position.
-                q = state[..., self.index].unsqueeze(-1)
+                q = state[..., self.index].unsqueeze(-1) if self.temporal_window_size == 1 else state[..., self.index]
 
                 # The output is only the position at a given index.
                 y = y[..., self.index]

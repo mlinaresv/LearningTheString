@@ -21,7 +21,8 @@ def inference_during_training(
         dataset: H5TimeShiftDataset,
         sr: int,
         duration: float | int,
-        device: str
+        device: str,
+        estimator: StateEstimator
 
 ) -> tuple:
     
@@ -40,6 +41,8 @@ def inference_during_training(
         Inference duration of the trajectories.
     device : str
         Machine device where the inference takes place.
+    estimator : StateEstimator
+        Object that estimates the initial position and momentum from a given initial position in the string.
 
     Returns
     -------
@@ -52,14 +55,23 @@ def inference_during_training(
     assert isinstance(sr, int), f'"sr" variable must be a int'
     assert isinstance(duration, float) or isinstance(duration, int), f'"duration" variable must be a float or an int'
     assert isinstance(device, str), f'"device" variable must be a str'
+    assert isinstance(estimator, StateEstimator), f'"estimator" variable must be a StateEstimator'
 
     # Define an inference solver.
     val_solver = SAVSolver(model=model, sr=sr, lib='torch')
+
     # Get the different quantities.
-    q0 = torch.from_numpy(dataset.file['states'][:, 0, :model.N]).float().to(device)
-    p0 = torch.from_numpy(dataset.file['states'][:, 0, model.N:2 * model.N]).float().to(device)
-    u = torch.from_numpy(dataset.file['states'][:, :, -1]).float().to(device)
+    state = torch.from_numpy(dataset.file['states'][:, 0:dataset.temporal_window_size]).float()
+
+    # Obtain the position, momentum and control.
+    q0 = state[..., :dataset.n].to(device) if not dataset.estimate_positions else state[..., dataset.index].to(device)
+    p0 = state[..., dataset.n: dataset.n * 2].to(device) if not dataset.estimate_positions else None
+    u = torch.from_numpy(dataset.file['states'][:, dataset.temporal_window_size - 1:, -1]).float().to(device)
     exc_pos = torch.from_numpy(dataset.file['exc'][:]).float().to(device)
+
+    # If estimation the initial state is needed.
+    if dataset.estimate_positions:
+        q0, p0 = estimator(q0)
 
     p_trajectory, q_trajectory, _ = val_solver.integrate(q0, p0, u, duration, exc_pos)
 

@@ -45,7 +45,8 @@ def main(config_path='test_configuration.yaml'):
         lazy_access=config["data"]["training_lazy_access"],
         estimate_sav=config["data"]["training_estimate_sav"],
         estimate_positions=config["data"]["training_estimate_positions"],
-        n_steps=config["data"]["training_n_steps"]
+        n_steps=config["data"]["training_n_steps"],
+        temporal_window_size=config["data"]["training_temporal_window_size"]
         
     )
 
@@ -56,7 +57,8 @@ def main(config_path='test_configuration.yaml'):
         lazy_access=config["data"]["validation_lazy_access"],
         estimate_sav=config["data"]["validation_estimate_sav"],
         estimate_positions=config["data"]["validation_estimate_positions"],
-        n_steps=config["data"]["validation_n_steps"]
+        n_steps=config["data"]["validation_n_steps"],
+        temporal_window_size=config["data"]["validation_temporal_window_size"]
         
     )
 
@@ -84,6 +86,7 @@ def main(config_path='test_configuration.yaml'):
     print('--> Define the estimator...')
     estimator = StateEstimator(
 
+        input_dim=train_dataset.temporal_window_size,
         hidden_dim=config["estimator"]["hidden_dim"],
         n=train_dataset.n,
         index=train_dataset.index

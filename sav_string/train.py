@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
+from librosa.util.exceptions import ParameterError
 from sav_string.nn.utils.inference_during_training import (inference_during_training, 
                                                            make_spectrogram_image, 
                                                            compute_non_linear_energy_error, 
@@ -89,24 +90,27 @@ def train(
 
                 if train_dataset.estimate_sav:
                     r = torch.sqrt(model.Enl(r) + 1e-14)
+
                 qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos, train=True)
                 preds = torch.concat((qnext, pnext), axis=-1)
 
             else:
                 
                 q, u, exc_pos = [t.to(device) for t in x_batch]
-                qnext, pnext, q_prev, p_prev = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
+                qnext, pnext, q_prev, p_prev, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 preds = qnext[..., train_dataset.index]
 
 
             ###### LOSS COMPUTATION AND BACKPROPAGATION ######
-            loss = criterion(preds, state_n_1) / (solver.dt)
+            baseline_loss = criterion(preds, state_n_1) / (solver.dt)
             
-            assert not torch.isnan(loss)
+            assert not torch.isnan(baseline_loss)
 
-            if not train_dataset.estimate_positions:
-                regularization_loss = criterion(model.rhol * (qnext - q_prev) / solver.dt, p_prev)
-                loss += regularization_loss
+            if train_dataset.estimate_positions:
+                consistency_error = criterion(model.rhol * (qnext - q_prev) / solver.dt, p_prev)
+                spatial_position_smoothness = torch.mean(torch.abs(q0_[..., 1:] - q0_[..., :-1]) / model.h) 
+                spatial_momentum_smoothness = torch.mean(torch.abs(p0_[..., 1:] - p0_[..., :-1]) / model.h) 
+                loss = baseline_loss + spatial_position_smoothness + spatial_momentum_smoothness
 
             assert not torch.isnan(loss)
 
@@ -124,7 +128,11 @@ def train(
 
                     ###### MODEL CHECKPOINT ######
                     index = (epoch - 1) * len(train_loader) + i
-                    writer.add_scalar("Train/Loss", loss, index)
+                    writer.add_scalar("Train/Loss", baseline_loss, index)
+                    writer.add_scalar("Train/ConsistencyError", consistency_error, index)
+                    writer.add_scalar("Train/SpatialPositionSmoothness", spatial_position_smoothness, index)
+                    writer.add_scalar("Train/SpatialMomentumSmoothness", spatial_momentum_smoothness, index)
+                    
                     torch.save({
                         "epoch": epoch,
                         "update": i,
@@ -183,7 +191,7 @@ def train(
 
                 q_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
 
-                qnext_val, pnext_val, q_prev_val, p_prev_val = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
+                qnext_val, pnext_val, q_prev_val, p_prev_val, _, _ = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
                 preds_val = qnext_val[..., train_dataset.index]
 
                 q_loss_val = criterion(preds_val, state_n_1_val) 
@@ -214,15 +222,17 @@ def train(
                 dataset=val_dataset,
                 sr=sr,
                 duration=test_audio_duration,
-                device=device
+                device=device,
+                estimator=estimator
             )
-            ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, :, : val_dataset.n * 2])
+            ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
             prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
             inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
             writer.add_scalar("Validation/InferenceLoss", inference_error, epoch)
 
             # Compute and write the nonquadratic energy error with respect to the ground truth function.
-            writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
+            if hasattr(model, 'Enl_'):
+                writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
 
         if epoch == 1 or (inference_error < baseline_inference_error):
 
@@ -251,9 +261,12 @@ def train(
 
             # Create the predicted spectrogram images.
             pmid_pred = p_trajectory_infer[0, :, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)].numpy()
-            spec_pred = make_spectrogram_image(pmid_pred, sr)          
-            spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
-            plt.close(spec_pred)  # avoid memory leaks
+            try:
+                spec_pred = make_spectrogram_image(pmid_pred, sr)          
+                spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
+                plt.close(spec_pred)  # avoid memory leaks
+            except ParameterError:
+                pass
 
             if epoch == 1:
 
@@ -266,10 +279,13 @@ def train(
                 )
 
                 # Create the reference spectrogram.
-                pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)].numpy()
-                spec_ref = make_spectrogram_image(pmid_ref, sr)
-                spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
-                plt.close(spec_ref)  # avoid memory leaks
+                try:
+                    pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)].numpy()
+                    spec_ref = make_spectrogram_image(pmid_ref, sr)
+                    spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
+                    plt.close(spec_ref)  # avoid memory leaks
+                except ParameterError:
+                    pass
         
 
     writer.close()

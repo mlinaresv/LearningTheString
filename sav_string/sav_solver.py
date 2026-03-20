@@ -104,7 +104,7 @@ class SAVSolver():
             rn = rnext
             qlast, plast = qnext, pnext
 
-        return qnext, pnext, q_prev, p_prev
+        return qnext, pnext, q_prev, p_prev, q0_, p0_
 
 
     def integrate(self, q0, p0, u_func, duration, excitation_position):
@@ -139,7 +139,7 @@ class SAVSolver():
         """
 
         # Time vector.
-        self.Nt = int(duration / self.dt)
+        self.Nt = int(duration / self.dt) if isinstance(u_func, types.FunctionType) else u_func.shape[-1] - 1
         self.t = self.lib.arange(self.Nt) * self.dt
         p_trajectory, q_trajectory = self.lib.zeros((*p0.shape[:-1], self.Nt + 1, p0.shape[-1])), self.lib.zeros((*q0.shape[:-1], self.Nt + 1, q0.shape[-1]))
         r_trajectory = self.lib.zeros((*p0.shape[:-1], self.Nt + 1, 1))

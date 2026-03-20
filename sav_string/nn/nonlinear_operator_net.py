@@ -166,18 +166,21 @@ class StateEstimator(nn.Module):
     def __init__(
             
             self, 
+            input_dim: int,
             hidden_dim: int, 
             n: int,
             index: int
 
         ):
 
+        assert isinstance(input_dim, int), f'"input_dim" variable must be a int'
         assert isinstance(hidden_dim, int), f'"hidden_dim" variable must be a int'
         assert isinstance(n, int), f'"n" variable must be a int'
         assert isinstance(index, int), f'"index" variable must be a int'
 
         super().__init__()
 
+        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n = n
         self.index = index
@@ -185,11 +188,13 @@ class StateEstimator(nn.Module):
         # Define the estimator network.
         self.estimator = nn.Sequential(
 
-            nn.Linear(1, hidden_dim),
+            nn.Linear(input_dim, 128),
             nn.LeakyReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(128, 256),
             nn.LeakyReLU(),
-            nn.Linear(hidden_dim, 2 * n - 1),
+            nn.Linear(256, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 2 * n - 1),
 
         )
 
@@ -197,11 +202,11 @@ class StateEstimator(nn.Module):
         
         # From a position 'q' at a given index, estimates the other positions in the string.
         estimated_states = self.estimator(q)
-
+        
         return torch.cat(
-            [
+            [   
                 estimated_states[..., :self.index], 
-                q, 
+                q[..., -1:], 
                 estimated_states[..., self.index:self.n-1]
             ], 
             dim=-1
