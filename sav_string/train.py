@@ -1,12 +1,13 @@
-import copy
 import torch
-import warnings
 import numpy as np
 import torch.nn as nn
-from tqdm import tqdm
+from beartype import beartype
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.nn.phnn_string import PHNNString
+from sav_string.nn.nonlinear_operator_net import StateEstimator
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
 from librosa.util.exceptions import ParameterError
@@ -26,23 +27,27 @@ def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_si
     return train_loader, val_loader
 
 
+@beartype
 def train( 
-        sr,
-        model,
-        estimator,
-        train_dataset, 
-        val_dataset, 
+        
+        sr: int,
+        model: PHNNString,
+        estimator: StateEstimator,
+        train_dataset: H5TimeShiftDataset, 
+        val_dataset: H5TimeShiftDataset, 
         train_batch_size: int,
         val_batch_size: int,
         log_dir: str,
-        lr: float = 1e-3,
-        epochs: int = 5000, 
-        device: str = "cpu",
-        log_each_n_epochs: int = 10,
-        log_each_n_updates: int = 100,
-        test_audio_duration: float = 2,
-        test_q_interval: list = [-0.1, 0.1]        
-    ):
+        lr: float,
+        epochs: int, 
+        device: str,
+        reconstruction_loss_type: str,
+        log_each_n_epochs: int,
+        log_each_n_updates: int,
+        test_audio_duration: float,
+        test_q_interval: list 
+
+    ): 
 
     # Define the numerical solver.
     solver = SAVSolver(model, sr=sr, lib='torch')
@@ -53,17 +58,13 @@ def train(
     model.to(device)
     estimator.to(device)
 
-    # Loss 
+    # Loss and optimizer.
     criterion = nn.L1Loss()
-
-    # Optimizer
-    optimizer = torch.optim.Adam(
-        list(model.parameters()) + list(estimator.parameters()),
-        lr=lr
-    )
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()), lr=lr)  # Include the model and estimator parameters.
 
     # TensorBoard
     writer = SummaryWriter(log_dir=log_dir)
+
 
     for epoch in range(1, epochs + 1):
 
@@ -97,7 +98,7 @@ def train(
             else:
                 
                 q, u, exc_pos = [t.to(device) for t in x_batch]
-                qnext, pnext, q_prev, p_prev, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
+                qnext, pnext = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 preds = qnext[..., train_dataset.index]
 
 
@@ -113,14 +114,20 @@ def train(
                 estimated_predicted_state_q, estimated_predicted_state_p = estimator(next_temporal_delay_embedding)
                 estimated_predicted_complete_state = torch.concat((estimated_predicted_state_q, estimated_predicted_state_p), axis=-1)
                 predicted_complete_state = torch.concat((qnext, pnext), axis=-1)
-                # The estimation of the next series must be 
-                reconstruction_loss = nn.MSELoss()(estimated_predicted_complete_state, predicted_complete_state)
-                first_reconstruction_loss = criterion(estimated_predicted_complete_state, predicted_complete_state) / (solver.dt)
+                # Compute the desired reconstruction loss.
+                if reconstruction_loss_type == 'mse': 
+                    reconstruction_loss = nn.MSELoss()(estimated_predicted_complete_state, predicted_complete_state)
+                elif reconstruction_loss_type == 'mae':
+                    reconstruction_loss = criterion(estimated_predicted_complete_state, predicted_complete_state)
+                elif reconstruction_loss_type == 'mae/t':
+                    reconstruction_loss = criterion(estimated_predicted_complete_state, predicted_complete_state) / (solver.dt)
             
-            if 1 == 1:
-                loss = baseline_loss + reconstruction_loss
+
+            if not train_dataset.estimate_positions:
+                loss = baseline_loss
             else: 
-                loss = baseline_loss + first_reconstruction_loss
+                loss = baseline_loss + reconstruction_loss
+
 
             assert not torch.isnan(loss)
 
@@ -139,13 +146,16 @@ def train(
                     ###### MODEL CHECKPOINT ######
                     index = (epoch - 1) * len(train_loader) + i
                     writer.add_scalar("Train/Loss", baseline_loss, index)
-                    writer.add_scalar("Train/ReconstructionLoss", reconstruction_loss, index)
-                    writer.add_scalar("Train/FirstReconstructionLoss", first_reconstruction_loss, index)
+                    if reconstruction_loss_type == 'mae':
+                        writer.add_scalar("Train/ReconstructionLoss(MAE)", reconstruction_loss, index)
+                    elif reconstruction_loss_type == 'mse':
+                        writer.add_scalar("Train/ReconstructionLoss(MSE)", reconstruction_loss, index)
                     
                     torch.save({
                         "epoch": epoch,
                         "update": i,
                         "model_state_dict": model.state_dict(),
+                        "estimator_state_dict": estimator.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "loss": loss,
                     }, f"./{log_dir}/checkpoint.pth")
@@ -200,16 +210,11 @@ def train(
 
                 q_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
 
-                qnext_val, pnext_val, q_prev_val, p_prev_val, _, _ = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
+                qnext_val, pnext_val = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
                 preds_val = qnext_val[..., train_dataset.index]
 
                 q_loss_val = criterion(preds_val, state_n_1_val[..., -1]) 
                 assert not torch.isnan(q_loss_val)
-
-                if not train_dataset.estimate_positions:
-                    regularization_val_loss = criterion(model.rhol * (qnext_val - q_prev_val) / solver.dt, p_prev_val)
-                    q_loss_val += regularization_val_loss
-                    assert not torch.isnan(q_loss_val)
 
                 q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
 
@@ -250,6 +255,7 @@ def train(
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
+                "estimator_state_dict": estimator.state_dict(),
                 "inference_error": inference_error,
             }, f"./{log_dir}/best_model.pth")
 

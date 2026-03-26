@@ -96,15 +96,13 @@ class SAVSolver():
 
         for i in range(n_steps):
 
-            q_prev, p_prev = qlast, plast 
-
             qnext, pnext, rnext = self.time_step(qlast, plast, rn, unow[..., i, :], excitation_position, train=train)
 
             # Load the variables for the next iteration.
             rn = rnext
             qlast, plast = qnext, pnext
 
-        return qnext, pnext, q_prev, p_prev, q0_, p0_
+        return qnext, pnext
 
 
     def integrate(self, q0, p0, u_func, duration, excitation_position):

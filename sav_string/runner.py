@@ -17,15 +17,20 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
+
 def main(config_path='test_configuration.yaml'):
-    # Load config file.
+
+
+    # LOAD CONFIGURATION FILE.
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    # Set seed.
+
+    # SET SEED.
     set_seed(config["seed"])
 
-    # Define the device.
+
+    # DEFINE THE DEVICE.
     try:
         gpu_id = mgp.get_gpu_lock(gpu_device_id=config["gpu_id"])
         os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
@@ -35,7 +40,8 @@ def main(config_path='test_configuration.yaml'):
         
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Define the datasets and dataloaders.
+
+    # DEFINE THE DATASETS AND DATALOADERS.
     print('--> Building the training and validation dataset...')
 
     train_dataset = H5TimeShiftDataset(
@@ -62,7 +68,8 @@ def main(config_path='test_configuration.yaml'):
         
     )
 
-    # Define the PHNNString model.
+
+    # DEFINE THE PHNNString MODEL.
     print('--> Defining the model...')
     model = PHNNString(
 
@@ -80,9 +87,11 @@ def main(config_path='test_configuration.yaml'):
         true_string_parameters=config["model"]["true_string_parameters"]
 
     ).to(device)
+
     print(f'--> Model with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters loaded!')
 
-    # Define the state estimator.
+
+    # DEFINE THE STATE ESTIMATOR.
     print('--> Define the estimator...')
     estimator = StateEstimator(
 
@@ -92,9 +101,11 @@ def main(config_path='test_configuration.yaml'):
         index=train_dataset.index
 
     ).to(device)
+
     print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
 
-    # Determine the logging directory.
+
+    # DETERMINE THE LOGGING DIRECTORY.
     log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(f'./{log_dir}')
     # Configuration file.
@@ -102,7 +113,9 @@ def main(config_path='test_configuration.yaml'):
     with open(output_path, 'w') as f:
         yaml.safe_dump(config, f)
 
-    # Train the model.
+
+    # TRAIN THE MODEL.
+
     train(
 
         sr=config["train"]["sampling_rate"],
@@ -115,6 +128,7 @@ def main(config_path='test_configuration.yaml'):
         lr=config["train"]["learning_rate"],
         epochs=config["train"]["epochs"],
         device=device,
+        reconstruction_loss_type=config["train"]["reconstruction_loss_type"],
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
         log_dir=log_dir,
@@ -122,6 +136,7 @@ def main(config_path='test_configuration.yaml'):
         test_q_interval=config["train"]["test_q_interval"]
 
     )
+
 
 if __name__ == '__main__':
     main()
