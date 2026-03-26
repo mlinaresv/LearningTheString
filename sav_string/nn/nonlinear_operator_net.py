@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+from beartype import beartype
 
 
+@beartype
 class LearnableDiff(nn.Module):
 
     """
@@ -26,10 +28,6 @@ class LearnableDiff(nn.Module):
             kernel_dim: int = 2
 
         ):
-
-        assert isinstance(h, float), f'"h" variable must be a float'
-        assert isinstance(learnable_filter, bool), f'"learnable_filter" variable must be a bool'
-        assert isinstance(kernel_dim, int), f'"kernel_dim" variable must be a int'
 
         super().__init__()
 
@@ -74,7 +72,7 @@ class LearnableDiff(nn.Module):
         return dxq
 
 
-
+@beartype
 class LearnableEnergy(nn.Module):
 
     """
@@ -102,10 +100,6 @@ class LearnableEnergy(nn.Module):
             learnable_filter: bool = True
         
         ):
-
-        assert isinstance(hidden_dim, int), f'"hidden_dim" variable must be a int'
-        assert isinstance(h, float), f'"h" variable must be a float'
-        assert isinstance(learnable_filter, bool), f'"learnable_filter" variable must be a int'
 
         super().__init__()
 
@@ -143,6 +137,7 @@ class LearnableEnergy(nn.Module):
         return sum
     
 
+@beartype
 class StateEstimator(nn.Module):
 
     """
@@ -174,11 +169,6 @@ class StateEstimator(nn.Module):
             index: torch.Tensor | int
 
         ):
-
-        assert isinstance(input_dim, int), f'"input_dim" variable ({type(input_dim)}) must be a int'
-        assert isinstance(hidden_dim, int), f'"hidden_dim" variable ({type(hidden_dim)}) must be a int'
-        assert isinstance(n, int), f'"n" variable ({type(n)}) must be a int'
-        assert isinstance(index, torch.Tensor) or isinstance(index, int), f'"index" variable ({type(index)}) must be a torch.Tensor or an int'
 
         super().__init__()
 

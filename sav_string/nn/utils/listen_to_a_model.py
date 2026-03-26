@@ -2,13 +2,14 @@ import sys
 sys.path.append('/u/anasynth/linares/LearningTheString')
 import yaml
 import torch
-from tqdm import tqdm
+from beartype import beartype
 from sav_string.sav_solver import SAVSolver
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.utils.string import listen_to_a_trajectory
 
 
+@beartype
 def listen_to_a_model(
 
     
@@ -40,11 +41,7 @@ def listen_to_a_model(
         (sr, scaled_audio)
     """
 
-    assert isinstance(directory, str), f'"directory" variable must be of type str'
-    assert isinstance(state_dict_type, str), f'"state_dict_type" variable must be of type str'
-    assert state_dict_type in ["checkpoint", "best_model"], f'"state_dict_type" value must be in ["checkpoint", "best_model"]'
-    assert isinstance(duration, int) or isinstance(duration, float), f'"duration" variable must be of type int or float' 
-    assert isinstance(sr, int), f'"sr" variable must be of type int' 
+    assert state_dict_type in ["checkpoint", "best_model"], f'"state_dict_type" value must be in ["checkpoint", "best_model"]' 
 
     # Load the model .yaml configuration file.
     print('# Loading the configuration file...')

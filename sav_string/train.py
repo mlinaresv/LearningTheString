@@ -139,6 +139,9 @@ def train(
 
 
             ###### LOGGING ######
+            model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()}
+
             if epoch % log_each_n_epochs == 0:
 
                 if i % log_each_n_updates == 0:
@@ -150,14 +153,16 @@ def train(
                         writer.add_scalar("Train/ReconstructionLoss(MAE)", reconstruction_loss, index)
                     elif reconstruction_loss_type == 'mse':
                         writer.add_scalar("Train/ReconstructionLoss(MSE)", reconstruction_loss, index)
+                    elif reconstruction_loss_type == 'mae/t':
+                        writer.add_scalar("Train/ReconstructionLoss(MAE/t)", reconstruction_loss, index)
                     
                     torch.save({
                         "epoch": epoch,
                         "update": i,
-                        "model_state_dict": model.state_dict(),
-                        "estimator_state_dict": estimator.state_dict(),
+                        "model_state_dict": model_state_dict,
+                        "estimator_state_dict": estimator_state_dict,
                         "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": loss,
+                        "loss": loss.item(),
                     }, f"./{log_dir}/checkpoint.pth")
 
                     # Compute and plot the gradient norms from the non-quadratic model.
@@ -241,8 +246,17 @@ def train(
             )
             ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
             prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
-            inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
-            writer.add_scalar("Validation/InferenceLoss", inference_error, epoch)
+
+            # Compute the different inference losses.
+            mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
+            mae_inference_error = criterion(prediction_inference, ground_truth_inference)
+            mae_t_inference_error = mae_inference_error / (solver.dt)
+            writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error, epoch)
+            writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error, epoch)
+            writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, epoch)
+
+            # Define the inference error metric to keep the model and to save inside the checkpoints.
+            inference_error = mse_inference_error 
 
             # Compute and write the nonquadratic energy error with respect to the ground truth function.
             if hasattr(model, 'Enl_'):
@@ -254,9 +268,9 @@ def train(
             baseline_inference_error = inference_error
             torch.save({
                 "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "estimator_state_dict": estimator.state_dict(),
-                "inference_error": inference_error,
+                "model_state_dict": model_state_dict,
+                "estimator_state_dict": estimator_state_dict,
+                "inference_error": inference_error.item(),
             }, f"./{log_dir}/best_model.pth")
 
             # Listen to the generated trajectory.

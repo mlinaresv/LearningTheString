@@ -6,6 +6,7 @@ import matplotlib
 import numpy as np
 import torch.nn as nn
 import librosa.display
+from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
 from sav_string.nn.phnn_string import PHNNString
@@ -14,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 
 
-
+@beartype
 def inference_during_training(
         
         model: PHNNString, 
@@ -49,13 +50,6 @@ def inference_during_training(
     tuple
         (p_trajectory, q_trajectory)
     """
-    
-    assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
-    assert isinstance(dataset, H5TimeShiftDataset), f'"dataset" variable must be a H5TimeShiftDataset'
-    assert isinstance(sr, int), f'"sr" variable must be a int'
-    assert isinstance(duration, float) or isinstance(duration, int), f'"duration" variable must be a float or an int'
-    assert isinstance(device, str), f'"device" variable must be a str'
-    assert isinstance(estimator, StateEstimator), f'"estimator" variable must be a StateEstimator'
 
     # Define an inference solver.
     val_solver = SAVSolver(model=model, sr=sr, lib='torch')
@@ -83,7 +77,7 @@ def inference_during_training(
     return p_trajectory, q_trajectory
 
 
-
+@beartype
 def make_spectrogram_image(
         
         signal: np.ndarray, 
@@ -108,9 +102,6 @@ def make_spectrogram_image(
         Spectogram figure.
     """
 
-    assert isinstance(signal, np.ndarray), f'"signal" variable must be a np.ndarray'
-    assert isinstance(sr, int), f'"sr" variable must be a int'
-    assert isinstance(ylim, list) or isinstance(ylim, tuple), f'"ylim" variable must be a list or a tuple'
     assert len(ylim) == 2, f'"ylim" variable must be of length 2' 
 
     # STFT
@@ -126,7 +117,7 @@ def make_spectrogram_image(
     return fig
 
 
-
+@beartype
 def compute_non_linear_energy_error(
         
         model: PHNNString, 
@@ -134,7 +125,7 @@ def compute_non_linear_energy_error(
         num_points: int = 1000, 
         device: str = 'cpu'
     
-    ) -> torch.tensor:
+    ):
 
     """
     Computes the error between the estimated nonquadratic Hamiltonian and the ground truth one x^4.
@@ -149,17 +140,9 @@ def compute_non_linear_energy_error(
         Number of points at which the estimated error is computed.
     device: str
         Machine device where this operation takes place.
-
-    Returns
-    -------
-    torch.tensor
     """
 
-    assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
-    assert isinstance(q_interval, list) or isinstance(q_interval, tuple), f'"q_interval" variable must be a list or a tuple'
     assert len(q_interval) == 2, f'"q_interval" variable must be of length 2, containing the minimum and maximum position values'
-    assert isinstance(num_points, int), f'"num_points" variable must be a int' 
-    assert isinstance(device, str), f'"device" variable must be a str'
 
     # Obtain the nonlinear energy block.
     predicted_non_linear_energy = model.Enl_.mlp
@@ -171,7 +154,7 @@ def compute_non_linear_energy_error(
     return nn.L1Loss()(predicted_energy_values, groud_truth_energy_values)
 
 
-
+@beartype
 def write_constant_parameters_errors(
         
         writer: SummaryWriter, 
@@ -193,10 +176,6 @@ def write_constant_parameters_errors(
     index : int
         Writing index.
     """
-
-    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
-    assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
-    assert isinstance(index, int), f'"index" variable must be a int'
 
     # Get the true Hamiltonian parameters.
     rho = torch.tensor(float(model.true_string_parameters['rho']))
@@ -225,7 +204,7 @@ def write_constant_parameters_errors(
     writer.add_scalar("Parameters/eta1", torch.abs(eta1 - torch.abs(model.eta1)) / eta1, index)
 
 
-
+@beartype
 def write_stability_conditions(
         
         writer: SummaryWriter, 
@@ -251,11 +230,6 @@ def write_stability_conditions(
         Sample rate from the SAV numerical solver.   
     """
 
-    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
-    assert isinstance(model, PHNNString), f'"model" variable must be a PHNNString'
-    assert isinstance(index, int), f'"index" variable must be a int'
-    assert isinstance(sr, int), f'"sr" variable must be a int'
-
     with torch.inference_mode():
         # Write the h-condition.
         dt = 1 / sr
@@ -266,7 +240,7 @@ def write_stability_conditions(
     writer.add_scalar("Stability/h-condition", (model.h - h_min).item(), index)
 
 
-
+@beartype
 def write_model_gradients(
         
         writer: SummaryWriter,
@@ -290,11 +264,6 @@ def write_model_gradients(
     label : str
         Label to distinguish the type of model.
     """
-    
-    assert isinstance(writer, SummaryWriter), f'"writer" variable must be a SummaryWriter'
-    assert isinstance(model, PHNNString) or isinstance(model, StateEstimator), f'"model" variable must be a PHNNString or a StateEstimator'
-    assert isinstance(index, int), f'"index" variable must be a int'
-    assert isinstance(label, str), f'"label" variable must be a str'
 
     # Compute the gradient norms.
     total_linear_norm = 0.0

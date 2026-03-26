@@ -36,6 +36,7 @@ def ovm_diff_stats(
     dict
         {"global_min": float, "global_max": float, "dataset": dataset_name, "shape": (B,T,N)}
     """
+    
     if h == 0:
         raise ValueError("h must be non-zero")
 

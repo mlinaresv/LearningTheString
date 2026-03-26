@@ -1,10 +1,11 @@
-import gc
 import math
 import h5py
 import torch
+from beartype import beartype
 from torch.utils.data import Dataset
 
 
+@beartype
 class H5TimeShiftDataset(Dataset):
 
     """
@@ -53,14 +54,6 @@ class H5TimeShiftDataset(Dataset):
             temporal_window_size: int = 1,
 
         ):
-
-        assert isinstance(h5path, str), f'"h5path" variable must be a str'
-        assert isinstance(lazy_access, bool), f'"lazy_access" variable must be a bool'
-        assert isinstance(number_of_trajectories, int), f'"number_of_trajectories" variable must be a int'
-        assert isinstance(estimate_sav, bool), f'"estimate_sav" variable must be a bool'
-        assert isinstance(estimate_positions, bool), f'"estimate_positions" variable must be a bool'
-        assert isinstance(n_steps, int), f'"n_steps" variable must be a int'
-        assert isinstance(temporal_window_size, int), f'"temporal_window_size" variable must be a int'
 
         if estimate_sav:
             assert not estimate_positions, f"variable 'estimate_positions' can not be True if variable 'estimate_sav' is True"
