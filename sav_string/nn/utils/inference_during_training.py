@@ -302,8 +302,8 @@ def write_model_gradients(
         if isinstance(module, nn.Linear):
             for param in module.parameters():
                 if param.grad is not None:
-                    total_linear_norm += param.grad.norm().item()
+                    total_linear_norm += param.grad.norm().item() ** 2
                 else:
                     warnings.warn("There are some model parameters whose .grad attribute is None!", RuntimeWarning)
                     
-    writer.add_scalar(f"Gradients/{label}Model", total_linear_norm, index)
+    writer.add_scalar(f"Gradients/{label}Model", total_linear_norm ** 0.5, index)

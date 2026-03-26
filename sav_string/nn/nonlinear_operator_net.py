@@ -150,6 +150,8 @@ class StateEstimator(nn.Module):
 
     Parameters
     ----------
+    input_dim : int
+        Input dimension of the neural network; it refers to the number of time steps from which the state is estimated.
     hidden_dim : int
         Hidden dimension of the hidden layers from the MLP estimator.
     n : int
@@ -169,14 +171,14 @@ class StateEstimator(nn.Module):
             input_dim: int,
             hidden_dim: int, 
             n: int,
-            index: int
+            index: torch.Tensor | int
 
         ):
 
-        assert isinstance(input_dim, int), f'"input_dim" variable must be a int'
-        assert isinstance(hidden_dim, int), f'"hidden_dim" variable must be a int'
-        assert isinstance(n, int), f'"n" variable must be a int'
-        assert isinstance(index, int), f'"index" variable must be a int'
+        assert isinstance(input_dim, int), f'"input_dim" variable ({type(input_dim)}) must be a int'
+        assert isinstance(hidden_dim, int), f'"hidden_dim" variable ({type(hidden_dim)}) must be a int'
+        assert isinstance(n, int), f'"n" variable ({type(n)}) must be a int'
+        assert isinstance(index, torch.Tensor) or isinstance(index, int), f'"index" variable ({type(index)}) must be a torch.Tensor or an int'
 
         super().__init__()
 

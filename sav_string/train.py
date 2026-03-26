@@ -102,15 +102,25 @@ def train(
 
 
             ###### LOSS COMPUTATION AND BACKPROPAGATION ######
-            baseline_loss = criterion(preds, state_n_1) / (solver.dt)
+            baseline_loss = criterion(preds, state_n_1[:, -1]) / (solver.dt)
             
             assert not torch.isnan(baseline_loss)
 
             if train_dataset.estimate_positions:
-                consistency_error = criterion(model.rhol * (qnext - q_prev) / solver.dt, p_prev)
-                spatial_position_smoothness = torch.mean(torch.abs(q0_[..., 1:] - q0_[..., :-1]) / model.h) 
-                spatial_momentum_smoothness = torch.mean(torch.abs(p0_[..., 1:] - p0_[..., :-1]) / model.h) 
-                loss = baseline_loss + spatial_position_smoothness + spatial_momentum_smoothness
+
+                # Compute the next temporal delayed embedding.
+                next_temporal_delay_embedding = torch.concat((q[..., 1:], preds.unsqueeze(-1)), axis=-1)
+                estimated_predicted_state_q, estimated_predicted_state_p = estimator(next_temporal_delay_embedding)
+                estimated_predicted_complete_state = torch.concat((estimated_predicted_state_q, estimated_predicted_state_p), axis=-1)
+                predicted_complete_state = torch.concat((qnext, pnext), axis=-1)
+                # The estimation of the next series must be 
+                reconstruction_loss = nn.MSELoss()(estimated_predicted_complete_state, predicted_complete_state)
+                first_reconstruction_loss = criterion(estimated_predicted_complete_state, predicted_complete_state) / (solver.dt)
+            
+            if 1 == 1:
+                loss = baseline_loss + reconstruction_loss
+            else: 
+                loss = baseline_loss + first_reconstruction_loss
 
             assert not torch.isnan(loss)
 
@@ -129,9 +139,8 @@ def train(
                     ###### MODEL CHECKPOINT ######
                     index = (epoch - 1) * len(train_loader) + i
                     writer.add_scalar("Train/Loss", baseline_loss, index)
-                    writer.add_scalar("Train/ConsistencyError", consistency_error, index)
-                    writer.add_scalar("Train/SpatialPositionSmoothness", spatial_position_smoothness, index)
-                    writer.add_scalar("Train/SpatialMomentumSmoothness", spatial_momentum_smoothness, index)
+                    writer.add_scalar("Train/ReconstructionLoss", reconstruction_loss, index)
+                    writer.add_scalar("Train/FirstReconstructionLoss", first_reconstruction_loss, index)
                     
                     torch.save({
                         "epoch": epoch,
@@ -194,7 +203,7 @@ def train(
                 qnext_val, pnext_val, q_prev_val, p_prev_val, _, _ = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
                 preds_val = qnext_val[..., train_dataset.index]
 
-                q_loss_val = criterion(preds_val, state_n_1_val) 
+                q_loss_val = criterion(preds_val, state_n_1_val[..., -1]) 
                 assert not torch.isnan(q_loss_val)
 
                 if not train_dataset.estimate_positions:

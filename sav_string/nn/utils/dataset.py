@@ -50,7 +50,7 @@ class H5TimeShiftDataset(Dataset):
             estimate_sav: bool = False,
             estimate_positions: bool = False,
             n_steps: int = 1,
-            temporal_window_size: int = 1
+            temporal_window_size: int = 1,
 
         ):
 
@@ -153,7 +153,7 @@ class H5TimeShiftDataset(Dataset):
 
             # Load the states (inputs), the outputs and the excitation position.
             state = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 1: t_idx + 1]).float()
-            y = torch.from_numpy(self.file['states'][n_idx, t_idx + self.n_steps, :-2]).float()
+            y = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 1 + self.n_steps: t_idx + self.n_steps + 1, :-2]).float()
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
             
             # Get the control.
@@ -179,7 +179,7 @@ class H5TimeShiftDataset(Dataset):
             else:
 
                 # Get the position.
-                q = state[..., self.index].unsqueeze(-1) if self.temporal_window_size == 1 else state[..., self.index]
+                q = state[..., self.index]
 
                 # The output is only the position at a given index.
                 y = y[..., self.index]
