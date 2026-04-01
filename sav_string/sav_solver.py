@@ -94,15 +94,27 @@ class SAVSolver():
         rn = None
         qlast, plast = q0_, p0_
 
+        # Lists to store intermediate states
+        q_list = []
+        p_list = []
+
         for i in range(n_steps):
 
             qnext, pnext, rnext = self.time_step(qlast, plast, rn, unow[..., i, :], excitation_position, train=train)
+
+            # Store results (add time dimension)
+            q_list.append(qnext.unsqueeze(1))
+            p_list.append(pnext.unsqueeze(1))
 
             # Load the variables for the next iteration.
             rn = rnext
             qlast, plast = qnext, pnext
 
-        return qnext, pnext
+        # Concatenate along time dimension (dim=1)
+        q_all = torch.cat(q_list, dim=1)
+        p_all = torch.cat(p_list, dim=1)
+
+        return q_all, p_all, q0_, p0_
 
 
     def integrate(self, q0, p0, u_func, duration, excitation_position):

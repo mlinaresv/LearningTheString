@@ -153,6 +153,8 @@ class StateEstimator(nn.Module):
         Number of states from the problem, which must be even because of Hamiltonian dynamics.
     index : int
         Given position where the position is measured alongside the string.
+    positioning_hard_constraint : bool
+        Whether the output of the encoder includes the fact that I have access to the position at a given string node.
 
     Returns
     -------
@@ -166,7 +168,8 @@ class StateEstimator(nn.Module):
             input_dim: int,
             hidden_dim: int, 
             n: int,
-            index: torch.Tensor | int
+            index: torch.Tensor | int,
+            positioning_hard_constraint: bool
 
         ):
 
@@ -176,6 +179,8 @@ class StateEstimator(nn.Module):
         self.hidden_dim = hidden_dim
         self.n = n
         self.index = index
+        self.positioning_hard_constraint = positioning_hard_constraint
+        self.output_dim = 2 * n - 1 if self.positioning_hard_constraint else 2 * n
 
         # Define the estimator network.
         self.estimator = nn.Sequential(
@@ -186,7 +191,7 @@ class StateEstimator(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(256, 512),
             nn.LeakyReLU(),
-            nn.Linear(512, 2 * n - 1),
+            nn.Linear(512, self.output_dim),
 
         )
 
@@ -194,12 +199,81 @@ class StateEstimator(nn.Module):
         
         # From a position 'q' at a given index, estimates the other positions in the string.
         estimated_states = self.estimator(q)
+
+        if self.positioning_hard_constraint:
         
-        return torch.cat(
-            [   
-                estimated_states[..., :self.index], 
-                q[..., -1:], 
-                estimated_states[..., self.index:self.n-1]
-            ], 
-            dim=-1
-        ), estimated_states[..., self.n-1:]
+            return torch.cat(
+                [   
+                    estimated_states[..., :self.index], 
+                    q[..., -1:], 
+                    estimated_states[..., self.index:self.n-1]
+                ], 
+                dim=-1
+            ), estimated_states[..., self.n-1:]
+        
+        else:
+
+            return estimated_states[..., :self.n], estimated_states[..., self.n:]
+        
+
+    
+@beartype
+class StateDecoder(nn.Module):
+
+    """
+    A nn.Module class that estimates the observations from the full position and momentum state.
+
+    Parameters
+    ----------
+    input_dim : int
+        Input dimension of the neural network; it refers to the state dimension of the string model.
+    hidden_dim : int
+        Hidden dimension of the hidden layers from the MLP decoder.
+    output_dim : int
+        Output dimension of the MLP decoder; which refers to the number of time steps.
+    n : int
+        Number of states from the problem, which must be even because of Hamiltonian dynamics.
+
+    Returns
+    -------
+    tuple
+        (estimated_q)_t at the node
+    """
+
+    def __init__(
+            
+            self, 
+            input_dim: int,
+            hidden_dim: int, 
+            output_dim: int,
+            n: int
+
+        ):
+
+        super().__init__()
+
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.n = n
+        self.output_dim = output_dim
+
+        # Define the estimator network.
+        self.decoder = nn.Sequential(
+
+            nn.Linear(input_dim, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, 128),
+            nn.LeakyReLU(),
+            nn.Linear(128, self.output_dim),
+
+        )
+
+    def forward(self, q, p):
+        
+        # From a position 'q' at a given index, estimates the other positions in the string.
+        state = torch.concat((q, p), axis=-1)
+        estimated_observations = self.decoder(state)
+        
+        return estimated_observations

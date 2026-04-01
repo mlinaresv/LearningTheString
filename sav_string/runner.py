@@ -10,7 +10,7 @@ from sav_string.train import train, build_dataloaders
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.nonlinear_operator_net import StateEstimator
+from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -98,11 +98,32 @@ def main(config_path='test_configuration.yaml'):
         input_dim=train_dataset.temporal_window_size,
         hidden_dim=config["estimator"]["hidden_dim"],
         n=train_dataset.n,
-        index=train_dataset.index
+        index=train_dataset.index,
+        positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"]
 
     ).to(device)
 
     print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
+
+
+    # DEFINE THE DECODER ESTIMATOR.
+    if not estimator.positioning_hard_constraint:
+        
+        print('--> Define the decoder...')
+        decoder = StateDecoder(
+
+            input_dim=2 * train_dataset.n,
+            hidden_dim=config["estimator"]["hidden_dim"],
+            output_dim=train_dataset.temporal_window_size,
+            n=train_dataset.n
+
+        ).to(device)
+
+        print(f'--> Decoder with {sum(p.numel() for p in decoder.parameters() if p.requires_grad)} trainable parameters loaded!')
+
+    else:
+
+        decoder = None
 
 
     # DETERMINE THE LOGGING DIRECTORY.
@@ -121,6 +142,7 @@ def main(config_path='test_configuration.yaml'):
         sr=config["train"]["sampling_rate"],
         model=model,
         estimator=estimator,
+        decoder=decoder,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         train_batch_size=config["train"]["training_batch_size"],
