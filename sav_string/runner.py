@@ -11,6 +11,7 @@ from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.nn.baseline import MLPNextValue
+from sav_string.sav_solver import SAVSolver
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 from sav_string.nn.utils.training import define_loss_function
 
@@ -151,9 +152,12 @@ def main(config_path='test_configuration.yaml'):
         yaml.safe_dump(config, f)
 
 
+    # DEFINE THE NUMERICAL SOLVER.
+    solver = SAVSolver(model, sr=config["train"]["sampling_rate"], lib='torch')
+
     # DETERMINE THE TRAINING LOSSES.
-    baseline_loss = define_loss_function(config["baseline_loss_type"])
-    reconstruction_loss = define_loss_function(config["reconstruction_loss_type"])
+    baseline_loss = define_loss_function(config["baseline_loss_type"], dt=solver.dt)
+    reconstruction_loss = define_loss_function(config["reconstruction_loss_type"], dt=solver.dt)
 
 
     # TRAIN THE MODEL.
@@ -162,14 +166,15 @@ def main(config_path='test_configuration.yaml'):
 
         sr=config["train"]["sampling_rate"],
         model=model,
+        solver=solver,
         estimator=estimator,
         decoder=decoder,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         train_batch_size=config["train"]["training_batch_size"],
         val_batch_size=config["train"]["validation_batch_size"],
-        baseline_loss=baseline_loss,
-        reconstruction_loss=reconstruction_loss,
+        baseline_loss_function=baseline_loss,
+        reconstruction_loss_function=reconstruction_loss,
         lr=config["train"]["learning_rate"],
         epochs=config["train"]["epochs"],
         device=device,

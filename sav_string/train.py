@@ -6,11 +6,10 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.utils.training import curriculum_loss
+from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.baseline import MLPNextValue
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
-from sav_string.sav_solver import SAVSolver
 from sav_string.utils.string import listen_to_a_trajectory
 from librosa.util.exceptions import ParameterError
 from sav_string.nn.utils.inference_during_training import (inference_during_training, 
@@ -35,14 +34,15 @@ def train(
         
         sr: int,
         model: PHNNString | MLPNextValue,
+        solver,
         estimator: StateEstimator,
         decoder: StateDecoder | None,
         train_dataset: H5TimeShiftDataset, 
         val_dataset: H5TimeShiftDataset, 
         train_batch_size: int,
         val_batch_size: int,
-        baseline_loss, 
-        reconstruction_loss,
+        baseline_loss_function, 
+        reconstruction_loss_function,
         log_dir: str,
         lr: float,
         epochs: int, 
@@ -53,9 +53,6 @@ def train(
         test_q_interval: list 
 
     ): 
-
-    # Define the numerical solver.
-    solver = SAVSolver(model, sr=sr, lib='torch')
 
     # Create the dataloaders.
     train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size)
@@ -110,10 +107,15 @@ def train(
                 else:
                     preds = model(q)
                 
+                # Define the observation loss.
+                observation_loss = 0.0
+                reconstruction_loss_actual_state = None
+                reconstruction_loss_next_state = None
+
                 if decoder is not None:
                     
-                    # Estimated observation at time t+1.
-                    preds = decoder(qnext, pnext)  
+                    # Estimated observation at time t+n_steps.
+                    preds = decoder(qnext, pnext)
 
                     # Estimated initial state.
                     reconstructed_actual_observation = decoder(q0_, p0_)
@@ -125,50 +127,45 @@ def train(
                     else:
                         pass
 
+                for l in range(train_dataset.n_steps):
+                    observation_loss += baseline_loss_function(preds[:, l], state_n_1) 
+                    assert not torch.isnan(observation_loss)
+
 
             ###### LOSS COMPUTATION AND BACKPROPAGATION ######
-            if decoder is not None:
-                for l in range(train_dataset.n_steps):
-                    observation_loss = baseline_loss(preds[:, l], state_n_1)
-
-            else:
-                # Baseline loss.
-                observation_loss = 0
-                for l in range(train_dataset.n_steps):
-                    observation_loss += baseline_loss(preds[:, l], state_n_1[:, -train_dataset.n_steps + l])
-                assert not torch.isnan(observation_loss)
-
-            reconstruction_loss_actual_state, reconstruction_loss_next_state = None, None
 
 
             if train_dataset.estimate_positions and not isinstance(model, MLPNextValue):
 
                 if decoder is None:
 
-                    # Compute the desired reconstruction loss.
-                    reconstruction_loss_next_state = 0
-                    for m in range(train_dataset.n_steps):
-                        next_temporal_delay_embedding = state_n_1[:, m:m+train_dataset.temporal_window_size]
-                        estimated_predicted_state_q, estimated_predicted_state_p = estimator(next_temporal_delay_embedding)
-                        estimated_predicted_complete_state = torch.concat((estimated_predicted_state_q, estimated_predicted_state_p), axis=-1)
-                        predicted_complete_state = torch.concat((qnext[:, m], pnext[:, m]), axis=-1)  
-                        reconstruction_loss_next_state += reconstruction_loss(predicted_complete_state, estimated_predicted_complete_state)
+                    # Latent estimation consistency loss.
+                    latent_estimation_loss = latent_estimation_consistency_loss(
+                        n_steps=train_dataset.n_steps,
+                        temporal_window_size=train_dataset.temporal_window_size,
+                        observations=state_n_1,
+                        estimator=estimator,
+                        predicted_q=qnext,
+                        predicted_p=pnext,
+                        criterion=reconstruction_loss_function
+                    )
 
-                    loss = (observation_loss) + reconstruction_loss_next_state
+                    loss = observation_loss + latent_estimation_loss
                     
                 else:
-                    # Compute the desired reconstruction loss.
-                    for m in range(train_dataset.n_steps):
 
-                        # Consistency loss for the estimator.
-                        next_temporal_delay_embedding = state_n_1[:, m:m+train_dataset.temporal_window_size]
-                        estimated_predicted_state_q, estimated_predicted_state_p = estimator(next_temporal_delay_embedding)
-                        estimated_predicted_complete_state = torch.concat((estimated_predicted_state_q, estimated_predicted_state_p), axis=-1)
-                        predicted_complete_state = torch.concat((qnext[:, m], pnext[:, m]), axis=-1)  
-                        reconstruction_loss_next_state = reconstruction_loss(predicted_complete_state, estimated_predicted_complete_state)
+                    # Consistency loss for time t+1.
+                    reconstruction_loss_next_state = reconstruction_loss(
+                        n_steps=train_dataset.n_steps,
+                        temporal_window_size=train_dataset.temporal_window_size,
+                        observations=state_n_1,
+                        estimator=estimator,
+                        decoder=decoder,
+                        criterion=reconstruction_loss_function
+                    )
 
-                        # Consistency loss for the decoder.
-                        reconstruction_loss_actual_state = reconstruction_loss(reconstructed_actual_observation, q) 
+                    # Consistency loss for the decoder.
+                    reconstruction_loss_actual_state = reconstruction_loss_function(reconstructed_actual_observation, q) 
 
                     loss = observation_loss + reconstruction_loss_actual_state + reconstruction_loss_next_state
 
