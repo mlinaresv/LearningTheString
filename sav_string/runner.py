@@ -10,7 +10,9 @@ from sav_string.train import train, build_dataloaders
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.nn.baseline import MLPNextValue
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
+from sav_string.nn.utils.training import define_loss_function
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -71,22 +73,29 @@ def main(config_path='test_configuration.yaml'):
 
     # DEFINE THE PHNNString MODEL.
     print('--> Defining the model...')
-    model = PHNNString(
 
-        N=config["model"]["N"], 
-        h=config["model"]["h"], 
-        hidden_dim=config["model"]["hidden_dim"],
-        learn_linear_energy_operator=config["model"]["learn_linear_energy_operator"],
-        learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
-        learn_linear_constants=config["model"]["learn_linear_constants"],
-        learn_tension_coefficient=config["model"]["learn_tension_coefficient"],
-        learn_radius_coefficient=config["model"]["learn_radius_coefficient"],
-        learn_dissipation_constants=config["model"]["learn_dissipation_constants"],
-        learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
-        learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
-        true_string_parameters=config["model"]["true_string_parameters"]
+    if config["general_architecture"]["model_type"] == 'baseline':
 
-    ).to(device)
+        model = MLPNextValue(input_size=train_dataset.temporal_window_size).to(device)
+
+    elif config["general_architecture"]["model_type"] == 'phnn_sav':
+
+        model = PHNNString(
+
+            N=config["model"]["N"], 
+            h=config["model"]["h"], 
+            hidden_dim=config["model"]["hidden_dim"],
+            learn_linear_energy_operator=config["model"]["learn_linear_energy_operator"],
+            learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
+            learn_linear_constants=config["model"]["learn_linear_constants"],
+            learn_tension_coefficient=config["model"]["learn_tension_coefficient"],
+            learn_radius_coefficient=config["model"]["learn_radius_coefficient"],
+            learn_dissipation_constants=config["model"]["learn_dissipation_constants"],
+            learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
+            learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
+            true_string_parameters=config["model"]["true_string_parameters"]
+
+        ).to(device)
 
     print(f'--> Model with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters loaded!')
 
@@ -101,13 +110,20 @@ def main(config_path='test_configuration.yaml'):
         index=train_dataset.index,
         positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"]
 
-    ).to(device)
+    )
 
     print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
 
+    if config['estimator']['load_estimator_dictionary']:
+
+        estimator_state_dict = torch.load(config['estimator']['checkpoint_file'], map_location='cpu')
+        estimator.load_state_dict(estimator_state_dict["estimator_state_dict"])
+
+        print(f'--> Loaded the estimator parameters from the file: {config["estimator"]["checkpoint_file"]}')
+
 
     # DEFINE THE DECODER ESTIMATOR.
-    if not estimator.positioning_hard_constraint:
+    if config["general_architecture"]["use_decoder"]:
         
         print('--> Define the decoder...')
         decoder = StateDecoder(
@@ -135,6 +151,11 @@ def main(config_path='test_configuration.yaml'):
         yaml.safe_dump(config, f)
 
 
+    # DETERMINE THE TRAINING LOSSES.
+    baseline_loss = define_loss_function(config["baseline_loss_type"])
+    reconstruction_loss = define_loss_function(config["reconstruction_loss_type"])
+
+
     # TRAIN THE MODEL.
 
     train(
@@ -147,10 +168,11 @@ def main(config_path='test_configuration.yaml'):
         val_dataset=val_dataset,
         train_batch_size=config["train"]["training_batch_size"],
         val_batch_size=config["train"]["validation_batch_size"],
+        baseline_loss=baseline_loss,
+        reconstruction_loss=reconstruction_loss,
         lr=config["train"]["learning_rate"],
         epochs=config["train"]["epochs"],
         device=device,
-        reconstruction_loss_type=config["train"]["reconstruction_loss_type"],
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
         log_dir=log_dir,

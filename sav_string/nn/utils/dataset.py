@@ -145,8 +145,9 @@ class H5TimeShiftDataset(Dataset):
             self._init_file()
 
             # Load the states (inputs), the outputs and the excitation position.
-            state = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 1: t_idx + 1]).float()
-            y = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 2: t_idx + self.n_steps + 1, :-2]).float()
+            observation = torch.from_numpy(self.file['states'][n_idx, t_idx - self.temporal_window_size + 1: t_idx + self.n_steps + 1]).float()
+            state = observation[:self.temporal_window_size]
+            y = observation[1:]
             exc_position = torch.from_numpy(self.file['exc'][n_idx]).float()
             
             # Get the control.

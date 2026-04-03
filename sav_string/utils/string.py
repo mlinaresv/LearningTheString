@@ -36,13 +36,18 @@ def generate_video_from_trajectory(data):
 
 
 def listen_to_a_trajectory(p_trajectory, sr, filename):
+
     assert isinstance(p_trajectory, np.ndarray), 'The given trajectory must be of type np.ndarray!'
-    pmid = p_trajectory[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)]
+
+    pmid = p_trajectory[:, int((np.sqrt(2) * p_trajectory.shape[-1]) // 2)] if p_trajectory.ndim > 1 else p_trajectory
+    
     # Scale the audio for different output resources.
     normalized_audio = pmid / np.max(np.abs(pmid))
     wav_scaled = np.int16(normalized_audio * 32767)
+
     # Save the .wav file in the model directory.
     write(f"{filename}.wav", sr, wav_scaled)
+    
     # Return the sampling rate, the wav scaled audio and the tensorboard audio.
     return sr, wav_scaled, normalized_audio
 

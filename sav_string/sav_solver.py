@@ -165,8 +165,8 @@ class SAVSolver():
 
         # Main loop.
         for i in range(self.Nt):
-            # Define the control at the time step.
-            
+
+            # Define the control at the time step.            
             u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
             qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
             qlast = qnext
@@ -178,3 +178,36 @@ class SAVSolver():
             r_trajectory[..., i + 1, :] = rnext
 
         return p_trajectory, q_trajectory, r_trajectory
+
+
+    def integrate_encoding_decoding_model(self, q0, u_func, duration, excitation_position, estimator, decoder):
+
+        # Time vector.
+        self.Nt = int(duration / self.dt) if isinstance(u_func, types.FunctionType) else u_func.shape[-1] - 1
+        self.t = self.lib.arange(self.Nt) * self.dt
+
+        # State initialization.
+        (qlast, plast), rnow = estimator(q0), None
+        p_trajectory, q_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1, plast.shape[-1])), self.lib.zeros((*qlast.shape[:-1], self.Nt + 1, qlast.shape[-1]))
+        observation_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1))
+        p_trajectory[..., 0, :] = plast
+        q_trajectory[..., 0, :] = qlast
+        observation_trajectory[..., 0] = q0[:, -1]
+
+        # Main loop.
+        for i in range(self.Nt):
+
+            # Define the control at the time step.            
+            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
+            qnext, pnext, _ = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
+
+            # Get the next observation.
+            next_observation = decoder(qnext, pnext)
+            qlast, plast = estimator(next_observation)
+
+            # Append the new generated states to the final trajectory.
+            p_trajectory[..., i + 1, :] = pnext
+            q_trajectory[..., i + 1, :] = qnext
+            observation_trajectory[..., i + 1] = next_observation[:, -1]
+
+        return p_trajectory, q_trajectory, observation_trajectory

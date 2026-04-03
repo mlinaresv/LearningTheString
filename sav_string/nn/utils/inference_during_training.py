@@ -9,8 +9,9 @@ import librosa.display
 from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
+from sav_string.nn.baseline import MLPNextValue
 from sav_string.nn.phnn_string import PHNNString
-from sav_string.nn.nonlinear_operator_net import StateEstimator
+from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 from torch.utils.tensorboard import SummaryWriter
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 
@@ -23,7 +24,8 @@ def inference_during_training(
         sr: int,
         duration: float | int,
         device: str,
-        estimator: StateEstimator
+        estimator: StateEstimator,
+        decoder: StateDecoder
 
 ) -> tuple:
     
@@ -44,6 +46,8 @@ def inference_during_training(
         Machine device where the inference takes place.
     estimator : StateEstimator
         Object that estimates the initial position and momentum from a given initial position in the string.
+    decoder : StateDecoder
+        Object that decodes the state into the observation of the problem.
 
     Returns
     -------
@@ -62,19 +66,33 @@ def inference_during_training(
     p0 = state[..., dataset.n: dataset.n * 2].to(device) if not dataset.estimate_positions else None
     u = torch.from_numpy(dataset.file['states'][:, dataset.temporal_window_size - 1:, -1]).float().to(device)
     exc_pos = torch.from_numpy(dataset.file['exc'][:]).float().to(device)
-
+    
     # If estimation the initial state is needed.
-    if dataset.estimate_positions:
-        q0, p0 = estimator(q0)
+    next_observation = None
+    
+    if not isinstance(model, MLPNextValue):
 
-    p_trajectory, q_trajectory, _ = val_solver.integrate(q0, p0, u, duration, exc_pos)
+        if decoder is None:
+
+            if dataset.estimate_positions:
+                q0, p0 = estimator(q0)
+
+            p_trajectory, q_trajectory, _ = val_solver.integrate(q0, p0, u, duration, exc_pos)
+
+        else:
+
+            p_trajectory, q_trajectory, next_observation = val_solver.integrate_encoding_decoding_model(q0, u, duration, exc_pos, estimator, decoder)
+
+    else:
+        q_trajectory = model.rollout(q0, u.shape[-1] - 1)
+
 
     if torch.isnan(p_trajectory).any():
         warnings.warn("The momentum trajectory has invalid numbers!", RuntimeWarning)
     if torch.isnan(q_trajectory).any():
         warnings.warn("The position trajectory has invalid numbers!", RuntimeWarning)
 
-    return p_trajectory, q_trajectory
+    return p_trajectory, q_trajectory, next_observation
 
 
 @beartype
@@ -158,7 +176,7 @@ def compute_non_linear_energy_error(
 def write_constant_parameters_errors(
         
         writer: SummaryWriter, 
-        model: PHNNString, 
+        model: PHNNString | MLPNextValue, 
         index: int
 
     ) -> None:
@@ -208,7 +226,7 @@ def write_constant_parameters_errors(
 def write_stability_conditions(
         
         writer: SummaryWriter, 
-        model: PHNNString, 
+        model: PHNNString | MLPNextValue, 
         index: int, 
         sr: int
         
@@ -244,7 +262,7 @@ def write_stability_conditions(
 def write_model_gradients(
         
         writer: SummaryWriter,
-        model: PHNNString | StateEstimator,
+        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder,
         index: int,
         label: str
 
@@ -276,3 +294,28 @@ def write_model_gradients(
                     warnings.warn("There are some model parameters whose .grad attribute is None!", RuntimeWarning)
                     
     writer.add_scalar(f"Gradients/{label}Model", total_linear_norm ** 0.5, index)
+
+
+def grad_norm(grads):
+    total = 0.0
+    for g in grads:
+        if g is not None:
+            total += g.norm().item() ** 2
+    return total ** 0.5
+
+
+@beartype
+def write_gradients_with_respect_to_loss(
+    
+        writer: SummaryWriter,
+        loss,
+        model,
+        index: int,
+        label: str
+
+):
+
+    grads = torch.autograd.grad(loss, model.parameters(), retain_graph=True, allow_unused=True)
+    grad_norm_wr_loss = grad_norm(grads)
+
+    writer.add_scalar(f"Gradients/{label}", grad_norm_wr_loss, index)
