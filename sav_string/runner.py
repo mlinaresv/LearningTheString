@@ -102,18 +102,25 @@ def main(config_path='test_configuration.yaml'):
 
 
     # DEFINE THE STATE ESTIMATOR.
-    print('--> Define the estimator...')
-    estimator = StateEstimator(
+    if config["general_architecture"]["model_type"] != 'baseline':
 
-        input_dim=train_dataset.temporal_window_size,
-        hidden_dim=config["estimator"]["hidden_dim"],
-        n=train_dataset.n,
-        index=train_dataset.index,
-        positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"]
+        print('--> Define the estimator...')
 
-    )
+        estimator = StateEstimator(
 
-    print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
+            input_dim=train_dataset.temporal_window_size,
+            hidden_dim=config["estimator"]["hidden_dim"],
+            n=train_dataset.n,
+            index=train_dataset.index,
+            positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"]
+
+        )
+
+        print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
+
+    else:
+
+        estimator = None
 
     if config['estimator']['load_estimator_dictionary']:
 

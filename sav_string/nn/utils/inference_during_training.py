@@ -19,13 +19,13 @@ from sav_string.nn.utils.dataset import H5TimeShiftDataset
 @beartype
 def inference_during_training(
         
-        model: PHNNString, 
+        model: PHNNString | MLPNextValue, 
         dataset: H5TimeShiftDataset,
         sr: int,
         duration: float | int,
         device: str,
-        estimator: StateEstimator,
-        decoder: StateDecoder
+        estimator: StateEstimator | None,
+        decoder: StateDecoder | None
 
 ) -> tuple:
     
@@ -68,7 +68,7 @@ def inference_during_training(
     exc_pos = torch.from_numpy(dataset.file['exc'][:]).float().to(device)
     
     # If estimation the initial state is needed.
-    next_observation = None
+    q_trajectory, p_trajectory, next_observation = None, None, None
     
     if not isinstance(model, MLPNextValue):
 
@@ -84,13 +84,18 @@ def inference_during_training(
             p_trajectory, q_trajectory, next_observation = val_solver.integrate_encoding_decoding_model(q0, u, duration, exc_pos, estimator, decoder)
 
     else:
-        q_trajectory = model.rollout(q0, u.shape[-1] - 1)
+        next_observation = model.rollout(q0, u.shape[-1] - 1)
 
 
-    if torch.isnan(p_trajectory).any():
-        warnings.warn("The momentum trajectory has invalid numbers!", RuntimeWarning)
-    if torch.isnan(q_trajectory).any():
-        warnings.warn("The position trajectory has invalid numbers!", RuntimeWarning)
+    if not isinstance(model, MLPNextValue):
+        if torch.isnan(p_trajectory).any():
+            warnings.warn("The momentum trajectory has invalid numbers!", RuntimeWarning)
+        if torch.isnan(q_trajectory).any():
+            warnings.warn("The position trajectory has invalid numbers!", RuntimeWarning)
+
+    else:
+        if torch.isnan(next_observation).any():
+            warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning)            
 
     return p_trajectory, q_trajectory, next_observation
 

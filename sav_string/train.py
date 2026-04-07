@@ -35,7 +35,7 @@ def train(
         sr: int,
         model: PHNNString | MLPNextValue,
         solver,
-        estimator: StateEstimator,
+        estimator: StateEstimator | None,
         decoder: StateDecoder | None,
         train_dataset: H5TimeShiftDataset, 
         val_dataset: H5TimeShiftDataset, 
@@ -54,15 +54,23 @@ def train(
 
     ): 
 
-    # Create the dataloaders.
+    # DATALOADERS   .
     train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size)
 
+    # MOVE OBJECTS TO DEVICE
     model.to(device)
-    estimator.to(device)
-    decoder.to(device)
+    if estimator is not None:
+        estimator.to(device)
+    if decoder is not None:
+        decoder.to(device) 
 
-    # Loss and optimizer.
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()) + list(decoder.parameters()), lr=lr)
+    # OPTIMIZER
+    if (decoder is not None) and (estimator is not None):
+        optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()) + list(decoder.parameters()), lr=lr)
+    elif estimator is not None:
+        optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()), lr=lr)
+    else:
+        optimizer = torch.optim.Adam(list(model.parameters()), lr=lr)
     
     # TensorBoard
     writer = SummaryWriter(log_dir=log_dir)
@@ -72,8 +80,11 @@ def train(
 
         # Prepare setting for training.
         model.train()
-        estimator.train()
-        decoder.train()
+        if estimator is not None:
+            estimator.train()
+        if decoder is not None:
+            decoder.train()
+
         training_running_loss = 0.0
 
         # ###### TRAINING ######
@@ -105,7 +116,7 @@ def train(
                 if not isinstance(model, MLPNextValue):
                     qnext, pnext, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 else:
-                    preds = model(q)
+                    preds = model(q, n_steps=train_dataset.n_steps)
                 
                 # Define the observation loss.
                 observation_loss = 0.0
@@ -168,6 +179,10 @@ def train(
                     reconstruction_loss_actual_state = reconstruction_loss_function(reconstructed_actual_observation, q) 
 
                     loss = observation_loss + reconstruction_loss_actual_state + reconstruction_loss_next_state
+
+            else:
+
+                loss = observation_loss
 
             assert not torch.isnan(loss)
 
@@ -327,48 +342,53 @@ def train(
                 estimator=estimator,
                 decoder=decoder
             )
-            prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
 
-            # Get the predicted initial positions.
-            predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
-            predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
+            if not isinstance(model, MLPNextValue):
 
-            # Compute the different inference losses.
-            mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
-            mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference)
-            mae_t_inference_error = mae_inference_error / (solver.dt)
-            mse_initial_position_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position)
-            mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation)
-            
-            ###### INFERENCE ERROR LOGGING ######
-            writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error.item(), epoch)
-            writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error.item(), epoch)
-            writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error.item(), epoch)
-            writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error.item(), epoch)
+                prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
+
+                # Get the predicted initial positions.
+                predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
+                predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
+
+                # Compute the different inference losses.
+                mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
+                writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error.item(), epoch)
+                mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference)
+                writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error.item(), epoch)
+                mae_t_inference_error = mae_inference_error / (solver.dt)
+                writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error.item(), epoch)
+                mse_initial_position_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position)
+                writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error.item(), epoch)
+
+            ###### OBSERVATION ERROR ######
+            mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation)  
             writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error.item(), epoch)
 
             # Define the inference error metric to keep the model and to save inside the checkpoints.
-            inference_error = mse_inference_error.item()
+            baseline_inference_error = float('inf')
+            inference_error = mse_inference_error.item() if not isinstance(model, MLPNextValue) else 0
 
             # Compute and write the nonquadratic energy error with respect to the ground truth function.
             if hasattr(model, 'Enl_'):
                 writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
 
-        if epoch == 1 or (inference_error < baseline_inference_error):
+        if epoch == 1 or (inference_error < baseline_inference_error) or (mse_observation_error < baseline_inference_error):
 
             ###### INFERENCE BASELINE UPDATE ######
-            baseline_inference_error = inference_error
+            baseline_inference_error = inference_error if inference_error > 0 else mse_observation_error
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model_state_dict,
                 "estimator_state_dict": estimator_state_dict,
                 "decoder_state_dict": decoder_state_dict,
                 "inference_error": inference_error,
+                "observation_error": mse_observation_error.item()
             }, f"./{log_dir}/best_model.pth")
 
 
             ###### LISTEN TO THE MODEL PREDICTION ######
-            information_listened = p_trajectory_infer[0].numpy() if decoder is None else next_observation_infer[0].numpy()
+            information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (not isinstance(model, MLPNextValue))) else next_observation_infer[0].numpy()
             
             _, _, tensorboard_audio_pred = listen_to_a_trajectory(
                 p_trajectory=information_listened,
@@ -386,7 +406,7 @@ def train(
 
 
             ###### SPECTROGRAM CREATION ######
-            pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if decoder is None else information_listened
+            pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (not isinstance(model, MLPNextValue)))  else information_listened
 
             # Prediction spectrogram.
             try:
@@ -397,8 +417,8 @@ def train(
                 pass
 
             # Error spectrogram.
-            p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if decoder is None else ground_truth_observation[0].numpy()
-            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if decoder is None else p_ref
+            p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (not isinstance(model, MLPNextValue))) else ground_truth_observation[0].numpy()
+            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (not isinstance(model, MLPNextValue))) else p_ref
             error = pmid_pred - pmid_ref
             try:
                 spec_error = make_spectrogram_image(error, sr)          
