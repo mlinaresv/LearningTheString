@@ -1,4 +1,5 @@
 import math
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -94,6 +95,6 @@ def latent_estimation_consistency_loss(
         estimated_q, estimated_p = estimator(observation_time_window)
         estimated_predicted_complete_state = torch.concat((estimated_q, estimated_p), axis=-1)
         predicted_complete_state = torch.concat((predicted_q[:, m], predicted_p[:, m]), axis=-1)  
-        reconstruction_loss_next_state += criterion(predicted_complete_state, estimated_predicted_complete_state)
+        latent_estimation_consistency_loss += criterion(predicted_complete_state, estimated_predicted_complete_state)
 
     return latent_estimation_consistency_loss

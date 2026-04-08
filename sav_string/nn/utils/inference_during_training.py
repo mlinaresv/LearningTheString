@@ -9,7 +9,7 @@ import librosa.display
 from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
-from sav_string.nn.baseline import MLPNextValue
+from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 from torch.utils.tensorboard import SummaryWriter
@@ -19,7 +19,7 @@ from sav_string.nn.utils.dataset import H5TimeShiftDataset
 @beartype
 def inference_during_training(
         
-        model: PHNNString | MLPNextValue, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel, 
         dataset: H5TimeShiftDataset,
         sr: int,
         duration: float | int,
@@ -70,7 +70,7 @@ def inference_during_training(
     # If estimation the initial state is needed.
     q_trajectory, p_trajectory, next_observation = None, None, None
     
-    if not isinstance(model, MLPNextValue):
+    if isinstance(model, PHNNString):
 
         if decoder is None:
 
@@ -87,7 +87,7 @@ def inference_during_training(
         next_observation = model.rollout(q0, u.shape[-1] - 1)
 
 
-    if not isinstance(model, MLPNextValue):
+    if isinstance(model, PHNNString):
         if torch.isnan(p_trajectory).any():
             warnings.warn("The momentum trajectory has invalid numbers!", RuntimeWarning)
         if torch.isnan(q_trajectory).any():
@@ -105,7 +105,9 @@ def make_spectrogram_image(
         
         signal: np.ndarray, 
         sr: int,
-        ylim: list | tuple = (0, 10000)
+        ylim: list | tuple = (0, 10000),
+        vmin: float = -100,
+        vmax: float = 0
         
     ) -> matplotlib.figure.Figure:
 
@@ -132,7 +134,13 @@ def make_spectrogram_image(
     S_db = librosa.amplitude_to_db(abs(S))
 
     fig = plt.figure()
-    librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='hz')
+    librosa.display.specshow(
+        S_db, 
+        sr=sr, 
+        x_axis='time', 
+        y_axis='hz',
+        vmin=vmin,
+        vmax=vmax)
     plt.colorbar(format='%+2.0f dB')
     plt.title("Spectrogram")
     plt.ylim(ylim[0], ylim[1])
@@ -181,7 +189,7 @@ def compute_non_linear_energy_error(
 def write_constant_parameters_errors(
         
         writer: SummaryWriter, 
-        model: PHNNString | MLPNextValue, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel, 
         index: int
 
     ) -> None:
@@ -231,7 +239,7 @@ def write_constant_parameters_errors(
 def write_stability_conditions(
         
         writer: SummaryWriter, 
-        model: PHNNString | MLPNextValue, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel, 
         index: int, 
         sr: int
         
@@ -267,7 +275,7 @@ def write_stability_conditions(
 def write_model_gradients(
         
         writer: SummaryWriter,
-        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder,
+        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel,
         index: int,
         label: str
 
@@ -291,7 +299,7 @@ def write_model_gradients(
     # Compute the gradient norms.
     total_linear_norm = 0.0
     for module in model.modules():
-        if isinstance(module, nn.Linear):
+        if isinstance(module, nn.Linear) or isinstance(module, nn.Conv1d):
             for param in module.parameters():
                 if param.grad is not None:
                     total_linear_norm += param.grad.norm().item() ** 2

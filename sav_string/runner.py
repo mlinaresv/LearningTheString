@@ -7,12 +7,10 @@ import numpy as np
 from datetime import datetime
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.train import train, build_dataloaders
-from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils import manage_gpus as mgp
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.baseline import MLPNextValue
 from sav_string.sav_solver import SAVSolver
-from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
+from sav_string.runner.utils import load_estimator, load_decoder, load_model, load_optimizer
 from sav_string.nn.utils.training import define_loss_function
 
 def set_seed(seed):
@@ -72,78 +70,50 @@ def main(config_path='test_configuration.yaml'):
     )
 
 
-    # DEFINE THE PHNNString MODEL.
+    ###### PHNNString MODEL ######
     print('--> Defining the model...')
 
-    if config["general_architecture"]["model_type"] == 'baseline':
-
-        model = MLPNextValue(input_size=train_dataset.temporal_window_size).to(device)
-
-    elif config["general_architecture"]["model_type"] == 'phnn_sav':
-
-        model = PHNNString(
-
-            N=config["model"]["N"], 
-            h=config["model"]["h"], 
-            hidden_dim=config["model"]["hidden_dim"],
-            learn_linear_energy_operator=config["model"]["learn_linear_energy_operator"],
-            learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
-            learn_linear_constants=config["model"]["learn_linear_constants"],
-            learn_tension_coefficient=config["model"]["learn_tension_coefficient"],
-            learn_radius_coefficient=config["model"]["learn_radius_coefficient"],
-            learn_dissipation_constants=config["model"]["learn_dissipation_constants"],
-            learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
-            learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
-            true_string_parameters=config["model"]["true_string_parameters"]
-
-        ).to(device)
-
-    print(f'--> Model with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters loaded!')
+    model = load_model(
+        model_type=config["general_architecture"]["model_type"],
+        baseline_architecture=config["general_architecture"]["baseline_architecture"],
+        temporal_window_size=train_dataset.temporal_window_size,
+        baseline_hyperparameters=config["general_architecture"]["hyperparameters"],
+        phnn_string_hyperparameters=config["model"],
+        load_model_dictionary=config['model']['load_model_dictionary'],
+        checkpoint_file=config["model"]["checkpoint_file"]
+    ).to(device)
 
 
-    # DEFINE THE STATE ESTIMATOR.
+    ###### STATE ESTIMATOR ######
+
     if config["general_architecture"]["model_type"] != 'baseline':
 
-        print('--> Define the estimator...')
-
-        estimator = StateEstimator(
-
+        estimator = load_estimator(
             input_dim=train_dataset.temporal_window_size,
             hidden_dim=config["estimator"]["hidden_dim"],
             n=train_dataset.n,
             index=train_dataset.index,
-            positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"]
-
-        )
-
-        print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
+            positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"],
+            load_estimator_dictionary=config['estimator']['load_estimator_dictionary'],
+            checkpoint_file=config['estimator']['checkpoint_file']
+        ).to(device)
 
     else:
 
         estimator = None
 
-    if config['estimator']['load_estimator_dictionary']:
 
-        estimator_state_dict = torch.load(config['estimator']['checkpoint_file'], map_location='cpu')
-        estimator.load_state_dict(estimator_state_dict["estimator_state_dict"])
-
-        print(f'--> Loaded the estimator parameters from the file: {config["estimator"]["checkpoint_file"]}')
-
-
-    # DEFINE THE DECODER ESTIMATOR.
+    ###### STATE DECODER ######
     if config["general_architecture"]["use_decoder"]:
         
-        print('--> Define the decoder...')
-        decoder = StateDecoder(
-
+        decoder = load_decoder(
             input_dim=2 * train_dataset.n,
-            hidden_dim=config["estimator"]["hidden_dim"],
+            hidden_dim=config["decoder"]["hidden_dim"],
             output_dim=train_dataset.temporal_window_size,
-            n=train_dataset.n
-
+            n=train_dataset.n,
+            load_decoder_dictionary=config['decoder']['load_decoder_dictionary'],
+            checkpoint_file=config['decoder']['checkpoint_file']
         ).to(device)
-
-        print(f'--> Decoder with {sum(p.numel() for p in decoder.parameters() if p.requires_grad)} trainable parameters loaded!')
 
     else:
 
@@ -166,6 +136,15 @@ def main(config_path='test_configuration.yaml'):
     baseline_loss = define_loss_function(config["baseline_loss_type"], dt=solver.dt)
     reconstruction_loss = define_loss_function(config["reconstruction_loss_type"], dt=solver.dt)
 
+    ###### OPTIMIZER ######
+    optimizer = load_optimizer(
+        model=model,
+        estimator=estimator,
+        decoder=decoder,
+        lr=config["train"]["learning_rate"],
+        load_optimizer_dictionary=config["optimizer"]["load_optimizer_dictionary"],
+        checkpoint_file=config["optimizer"]["checkpoint_file"]
+    )
 
     # TRAIN THE MODEL.
 
@@ -182,7 +161,7 @@ def main(config_path='test_configuration.yaml'):
         val_batch_size=config["train"]["validation_batch_size"],
         baseline_loss_function=baseline_loss,
         reconstruction_loss_function=reconstruction_loss,
-        lr=config["train"]["learning_rate"],
+        optimizer=optimizer,
         epochs=config["train"]["epochs"],
         device=device,
         log_each_n_epochs=config["train"]["log_each_n_epochs"],

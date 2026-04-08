@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss
 from sav_string.nn.phnn_string import PHNNString
-from sav_string.nn.baseline import MLPNextValue
+from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 from sav_string.utils.string import listen_to_a_trajectory
 from librosa.util.exceptions import ParameterError
@@ -33,7 +33,7 @@ def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_si
 def train( 
         
         sr: int,
-        model: PHNNString | MLPNextValue,
+        model: PHNNString | MLPNextValue | ConvSequenceModel,
         solver,
         estimator: StateEstimator | None,
         decoder: StateDecoder | None,
@@ -44,7 +44,7 @@ def train(
         baseline_loss_function, 
         reconstruction_loss_function,
         log_dir: str,
-        lr: float,
+        optimizer,
         epochs: int, 
         device: str,
         log_each_n_epochs: int,
@@ -55,26 +55,10 @@ def train(
     ): 
 
     # DATALOADERS   .
-    train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size)
-
-    # MOVE OBJECTS TO DEVICE
-    model.to(device)
-    if estimator is not None:
-        estimator.to(device)
-    if decoder is not None:
-        decoder.to(device) 
-
-    # OPTIMIZER
-    if (decoder is not None) and (estimator is not None):
-        optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()) + list(decoder.parameters()), lr=lr)
-    elif estimator is not None:
-        optimizer = torch.optim.Adam(list(model.parameters()) + list(estimator.parameters()), lr=lr)
-    else:
-        optimizer = torch.optim.Adam(list(model.parameters()), lr=lr)
+    train_loader, val_loader = build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size) 
     
     # TensorBoard
     writer = SummaryWriter(log_dir=log_dir)
-
 
     for epoch in range(1, epochs + 1):
 
@@ -113,7 +97,7 @@ def train(
                 
                 q, u, exc_pos = [t.to(device, non_blocking=True) for t in x_batch]
 
-                if not isinstance(model, MLPNextValue):
+                if isinstance(model, PHNNString):
                     qnext, pnext, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 else:
                     preds = model(q, n_steps=train_dataset.n_steps)
@@ -133,7 +117,7 @@ def train(
 
                 else:
 
-                    if not isinstance(model, MLPNextValue):
+                    if isinstance(model, PHNNString):
                         preds = qnext[..., train_dataset.index]
                     else:
                         pass
@@ -146,7 +130,7 @@ def train(
             ###### LOSS COMPUTATION AND BACKPROPAGATION ######
 
 
-            if train_dataset.estimate_positions and not isinstance(model, MLPNextValue):
+            if train_dataset.estimate_positions and isinstance(model, PHNNString):
 
                 if decoder is None:
 
@@ -165,6 +149,17 @@ def train(
                     
                 else:
 
+                    # Latent estimation consistency loss.
+                    latent_estimation_loss = latent_estimation_consistency_loss(
+                        n_steps=train_dataset.n_steps,
+                        temporal_window_size=train_dataset.temporal_window_size,
+                        observations=state_n_1,
+                        estimator=estimator,
+                        predicted_q=qnext,
+                        predicted_p=pnext,
+                        criterion=reconstruction_loss_function
+                    )
+
                     # Consistency loss for time t+1.
                     reconstruction_loss_next_state = reconstruction_loss(
                         n_steps=train_dataset.n_steps,
@@ -178,7 +173,7 @@ def train(
                     # Consistency loss for the decoder.
                     reconstruction_loss_actual_state = reconstruction_loss_function(reconstructed_actual_observation, q) 
 
-                    loss = observation_loss + reconstruction_loss_actual_state + reconstruction_loss_next_state
+                    loss = observation_loss + reconstruction_loss_actual_state + reconstruction_loss_next_state + latent_estimation_loss
 
             else:
 
@@ -191,7 +186,7 @@ def train(
                 index = (epoch - 1) * len(train_loader) + i
 
                 # Write gradients coming from the baseline loss.
-                if not isinstance(model, MLPNextValue):
+                if isinstance(model, PHNNString):
                     write_gradients_with_respect_to_loss(writer, observation_loss, estimator, index, label='EstimatorBaselineLoss')
 
                     if decoder is not None:
@@ -224,10 +219,12 @@ def train(
                         writer.add_scalar("Train/ReconstructionLoss_{t}", reconstruction_loss_actual_state, index)
                     if reconstruction_loss_next_state is not None:
                         writer.add_scalar("Train/ReconstructionLoss_{t+1}", reconstruction_loss_next_state, index)
+                    if latent_estimation_loss is not None: 
+                        writer.add_scalar("Train/ConsistencyLoss", latent_estimation_loss, index)
                     
                     ###### MODEL CHECKPOINT ######
                     model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-                    estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if not isinstance(model, MLPNextValue) else None
+                    estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if isinstance(model, PHNNString) else None
                     decoder_state_dict = {k: v.detach().cpu() for k, v in decoder.state_dict().items()} if decoder is not None else None
 
                     torch.save({
@@ -243,7 +240,7 @@ def train(
 
                     
                     ###### MODEL GRADIENTS AND PARAMETERS ######
-                    if not isinstance(model, MLPNextValue):
+                    if isinstance(model, PHNNString):
 
                         # Compute and plot the gradient norms from the non-quadratic model.
                         write_model_gradients(writer, solver.model, index, label='NonQuadratic')
@@ -343,7 +340,7 @@ def train(
                 decoder=decoder
             )
 
-            if not isinstance(model, MLPNextValue):
+            if isinstance(model, PHNNString):
 
                 prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
 
@@ -367,7 +364,7 @@ def train(
 
             # Define the inference error metric to keep the model and to save inside the checkpoints.
             baseline_inference_error = float('inf')
-            inference_error = mse_inference_error.item() if not isinstance(model, MLPNextValue) else 0
+            inference_error = mse_inference_error.item() if isinstance(model, PHNNString) else 0
 
             # Compute and write the nonquadratic energy error with respect to the ground truth function.
             if hasattr(model, 'Enl_'):
@@ -388,7 +385,7 @@ def train(
 
 
             ###### LISTEN TO THE MODEL PREDICTION ######
-            information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (not isinstance(model, MLPNextValue))) else next_observation_infer[0].numpy()
+            information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else next_observation_infer[0].numpy()
             
             _, _, tensorboard_audio_pred = listen_to_a_trajectory(
                 p_trajectory=information_listened,
@@ -406,7 +403,7 @@ def train(
 
 
             ###### SPECTROGRAM CREATION ######
-            pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (not isinstance(model, MLPNextValue)))  else information_listened
+            pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString)))  else information_listened
 
             # Prediction spectrogram.
             try:
@@ -417,8 +414,8 @@ def train(
                 pass
 
             # Error spectrogram.
-            p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (not isinstance(model, MLPNextValue))) else ground_truth_observation[0].numpy()
-            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (not isinstance(model, MLPNextValue))) else p_ref
+            p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else ground_truth_observation[0].numpy()
+            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString))) else p_ref
             error = pmid_pred - pmid_ref
             try:
                 spec_error = make_spectrogram_image(error, sr)          
