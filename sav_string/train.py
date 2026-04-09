@@ -1,3 +1,4 @@
+import gc
 import torch
 import numpy as np
 import torch.nn as nn
@@ -101,16 +102,22 @@ def train(
                     qnext, pnext, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 else:
                     preds = model(q, n_steps=train_dataset.n_steps)
+                    if train_dataset.normalize:
+                        preds = (preds * train_dataset.std_pos) + train_dataset.mean_pos
                 
                 # Define the observation loss.
                 observation_loss = 0.0
                 reconstruction_loss_actual_state = None
                 reconstruction_loss_next_state = None
+                latent_estimation_loss = None
 
                 if decoder is not None:
                     
                     # Estimated observation at time t+n_steps.
                     preds = decoder(qnext, pnext)
+
+                    if train_dataset.normalize:
+                        preds = (preds * train_dataset.std_pos) + train_dataset.mean_pos
 
                     # Estimated initial state.
                     reconstructed_actual_observation = decoder(q0_, p0_)
@@ -337,7 +344,9 @@ def train(
                 duration=test_audio_duration,
                 device=device,
                 estimator=estimator,
-                decoder=decoder
+                decoder=decoder,
+                mean_pos=train_dataset.mean_pos,
+                std_pos=train_dataset.std_pos
             )
 
             if isinstance(model, PHNNString):
@@ -349,22 +358,22 @@ def train(
                 predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
 
                 # Compute the different inference losses.
-                mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference)
-                writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error.item(), epoch)
-                mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference)
-                writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error.item(), epoch)
-                mae_t_inference_error = mae_inference_error / (solver.dt)
-                writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error.item(), epoch)
-                mse_initial_position_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position)
-                writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error.item(), epoch)
+                mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference).item()
+                writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error, epoch)
+                mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference).item()
+                writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error, epoch)
+                mae_t_inference_error = (mae_inference_error / (solver.dt))
+                writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, epoch)
+                mse_initial_position_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
+                writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, epoch)
 
             ###### OBSERVATION ERROR ######
-            mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation)  
-            writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error.item(), epoch)
+            mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
+            writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error, epoch)
 
             # Define the inference error metric to keep the model and to save inside the checkpoints.
             baseline_inference_error = float('inf')
-            inference_error = mse_inference_error.item() if isinstance(model, PHNNString) else 0
+            inference_error = mse_inference_error if isinstance(model, PHNNString) else mse_observation_error
 
             # Compute and write the nonquadratic energy error with respect to the ground truth function.
             if hasattr(model, 'Enl_'):
@@ -380,7 +389,7 @@ def train(
                 "estimator_state_dict": estimator_state_dict,
                 "decoder_state_dict": decoder_state_dict,
                 "inference_error": inference_error,
-                "observation_error": mse_observation_error.item()
+                "observation_error": mse_observation_error
             }, f"./{log_dir}/best_model.pth")
 
 
@@ -440,6 +449,15 @@ def train(
                     plt.close(spec_ref)  # avoid memory leaks
                 except ParameterError:
                     pass
+
+        # Clean all the intermediate variable for inference.
+        del ground_truth_inference, ground_truth_observation, ground_truth_initial_position, ground_truth_initial_window
+        del p_trajectory_infer, q_trajectory_infer, next_observation_infer
+        if isinstance(model, PHNNString):
+            del prediction_inference, predicted_initial_position_q, predicted_initial_position_p, predicted_initial_position
+        torch.cuda.empty_cache() 
+        del model_state_dict, decoder_state_dict, estimator_state_dict
+        gc.collect()
         
 
     writer.close()

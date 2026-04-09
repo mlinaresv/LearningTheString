@@ -25,7 +25,9 @@ def inference_during_training(
         duration: float | int,
         device: str,
         estimator: StateEstimator | None,
-        decoder: StateDecoder | None
+        decoder: StateDecoder | None,
+        mean_pos = None,
+        std_pos = None
 
 ) -> tuple:
     
@@ -62,10 +64,10 @@ def inference_during_training(
     state = torch.from_numpy(dataset.file['states'][:, 0:dataset.temporal_window_size]).float()
 
     # Obtain the position, momentum and control.
-    q0 = state[..., :dataset.n].to(device) if not dataset.estimate_positions else state[..., dataset.index].to(device)
-    p0 = state[..., dataset.n: dataset.n * 2].to(device) if not dataset.estimate_positions else None
-    u = torch.from_numpy(dataset.file['states'][:, dataset.temporal_window_size - 1:, -1]).float().to(device)
-    exc_pos = torch.from_numpy(dataset.file['exc'][:]).float().to(device)
+    q0 = state[..., :dataset.n] if not dataset.estimate_positions else state[..., dataset.index]
+    p0 = state[..., dataset.n: dataset.n * 2] if not dataset.estimate_positions else None
+    u = torch.from_numpy(dataset.file['states'][:, dataset.temporal_window_size - 1:, -1]).float()
+    exc_pos = torch.from_numpy(dataset.file['exc'][:]).float()
     
     # If estimation the initial state is needed.
     q_trajectory, p_trajectory, next_observation = None, None, None
@@ -84,7 +86,7 @@ def inference_during_training(
             p_trajectory, q_trajectory, next_observation = val_solver.integrate_encoding_decoding_model(q0, u, duration, exc_pos, estimator, decoder)
 
     else:
-        next_observation = model.rollout(q0, u.shape[-1] - 1)
+        next_observation = model.rollout(q0, u.shape[-1] - 1, mean_pos=mean_pos, std_pos=std_pos, device=device)
 
 
     if isinstance(model, PHNNString):
@@ -95,7 +97,9 @@ def inference_during_training(
 
     else:
         if torch.isnan(next_observation).any():
-            warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning)            
+            warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning) 
+
+    del q0, p0, u, exc_pos           
 
     return p_trajectory, q_trajectory, next_observation
 

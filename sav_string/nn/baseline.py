@@ -44,7 +44,7 @@ class MLPNextValue(nn.Module):
         return torch.cat(outputs, dim=1)  # (batch_size, n_steps, output_dim)
 
 
-    def rollout(self, x_init, steps):
+    def rollout(self, x_init, steps, mean_pos=None, std_pos=None, device='cpu'):
         """
         Recursive prediction over multiple steps.
 
@@ -62,13 +62,21 @@ class MLPNextValue(nn.Module):
         preds.append(x[:, -1:])
 
         for _ in range(steps):
-            y = self.forward(x, n_steps=1).squeeze(1)            # (batch, 1)
+
+            if mean_pos is not None and std_pos is not None:
+                x_in = (x - mean_pos) / std_pos
+
+            y_out = self.forward(x_in.to(device), n_steps=1).squeeze(1).detach().cpu()            # (batch, 1)
+
+            if mean_pos is not None and std_pos is not None:
+                y = (y_out * std_pos) + mean_pos
+
             preds.append(y[:, -1:])
 
             # shift window: drop first value, append prediction
             x = torch.cat([x[:, 1:], y[:, -1:]], dim=1)
 
-        return torch.cat(preds, dim=1).detach().cpu()
+        return torch.cat(preds, dim=1)
 
 
 

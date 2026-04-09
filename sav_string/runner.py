@@ -53,7 +53,8 @@ def main(config_path='test_configuration.yaml'):
         estimate_sav=config["data"]["training_estimate_sav"],
         estimate_positions=config["data"]["training_estimate_positions"],
         n_steps=config["data"]["training_n_steps"],
-        temporal_window_size=config["data"]["training_temporal_window_size"]
+        temporal_window_size=config["data"]["training_temporal_window_size"],
+        normalize=config["data"]["training_normalize"]
         
     )
 
@@ -104,7 +105,7 @@ def main(config_path='test_configuration.yaml'):
 
 
     ###### STATE DECODER ######
-    if config["general_architecture"]["use_decoder"]:
+    if config["general_architecture"]["use_decoder"] and config["general_architecture"]["model_type"] != 'baseline':
         
         decoder = load_decoder(
             input_dim=2 * train_dataset.n,

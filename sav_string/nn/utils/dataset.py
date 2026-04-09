@@ -52,6 +52,7 @@ class H5TimeShiftDataset(Dataset):
             estimate_positions: bool = False,
             n_steps: int = 1,
             temporal_window_size: int = 1,
+            normalize: bool = False
 
         ):
 
@@ -64,6 +65,7 @@ class H5TimeShiftDataset(Dataset):
         self.estimate_positions = estimate_positions
         self.n_steps = n_steps
         self.temporal_window_size = temporal_window_size
+        self.normalize = normalize
         self.file = None  # will be opened lazily per worker.
 
         if not lazy_access:
@@ -90,6 +92,9 @@ class H5TimeShiftDataset(Dataset):
 
         # If 'estimate_positions' is True, the index from which we have access to the position information.
         self.index = int((math.sqrt(2) / 2) * self.n)  # Represents the point where the experimental measure is taken.
+        if self.normalize:
+            self.mean_pos = torch.tensor(self.file['pos_mean_per_node'][:][self.index]).float()
+            self.std_pos = torch.tensor(self.file['pos_std_per_node'][:][self.index]).float()
 
 
     def _init_file(self):
@@ -174,6 +179,9 @@ class H5TimeShiftDataset(Dataset):
 
                 # Get the position.
                 q = state[..., self.index]
+
+                if self.normalize:                
+                    q = (q - self.mean_pos) / self.std_pos
 
                 # The output is only the position at a given index.
                 y = y[..., self.index]

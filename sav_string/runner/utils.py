@@ -1,3 +1,4 @@
+import torch
 from torch.optim import Adam
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.baseline import load_baseline_model
@@ -33,6 +34,7 @@ def load_estimator(
 
         estimator_state_dict = torch.load(checkpoint_file, map_location='cpu')
         estimator.load_state_dict(estimator_state_dict["estimator_state_dict"])
+        del estimator_state_dict
 
         print(f'--> Loaded the estimator parameters from the file: {checkpoint_file}')
 
@@ -69,6 +71,7 @@ def load_decoder(
 
         decoder_state_dict = torch.load(checkpoint_file, map_location='cpu')
         decoder.load_state_dict(decoder_state_dict["decoder_state_dict"])
+        del decoder_state_dict
 
         print(f'--> Loaded the decoder parameters from the file: {checkpoint_file}')
 
@@ -122,6 +125,7 @@ def load_model(
 
         model_state_dict = torch.load(checkpoint_file, map_location='cpu')
         model.load_state_dict(model_state_dict["model_state_dict"])
+        del model_state_dict
 
         print(f'--> Loaded the model parameters from the file: {checkpoint_file}')
 
@@ -149,6 +153,7 @@ def load_optimizer(
 
         optimizer_state_dict = torch.load(checkpoint_file)
         optimizer.load_state_dict(optimizer_state_dict["optimizer_state_dict"])
+        del optimizer_state_dict
 
         print(f'--> Loaded the optimizer parameters from the file: {checkpoint_file}')
 

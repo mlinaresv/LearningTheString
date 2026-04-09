@@ -33,6 +33,13 @@ def define_loss_function(loss_type: str, dt: float = None):
             return nn.MSELoss()(prediction, ground_truth) / dt**2
 
         return loss
+    
+    elif loss_type == 'normalized_mse':
+
+        def loss(prediction, ground_truth, eps=1e-8):
+            return torch.mean((prediction - ground_truth)**2 / (ground_truth.std()**2 + eps))
+        
+        return loss
 
 
 def curriculum_loss(pred, target, dt):
