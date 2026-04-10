@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def analyze_and_plot(file_path):
+def analyze_and_plot(file_path, ignore_control):
     with h5py.File(file_path, 'r') as f:
         states = f["states"][..., :-2]  # (N, T, D)
 
@@ -11,8 +11,9 @@ def analyze_and_plot(file_path):
     num_nodes = D // 2
 
     # Split
-    pos = states[:, :, :num_nodes]
-    mom = states[:, :, num_nodes:]
+    max_control_index = int(0.03 * 88200)
+    pos = states[:, :, :num_nodes] if not ignore_control else states[:, max_control_index:, :num_nodes]
+    mom = states[:, :, num_nodes:] if not ignore_control else states[:, max_control_index:, num_nodes:]
 
     print("Dataset shape:", states.shape)
     print("Number of nodes:", num_nodes)

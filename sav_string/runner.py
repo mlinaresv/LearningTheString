@@ -54,7 +54,8 @@ def main(config_path='test_configuration.yaml'):
         estimate_positions=config["data"]["training_estimate_positions"],
         n_steps=config["data"]["training_n_steps"],
         temporal_window_size=config["data"]["training_temporal_window_size"],
-        normalize=config["data"]["training_normalize"]
+        normalize=config["data"]["training_normalize"],
+        ignore_control=config["data"]["training_ignore_control"]
         
     )
 
@@ -66,7 +67,8 @@ def main(config_path='test_configuration.yaml'):
         estimate_sav=config["data"]["validation_estimate_sav"],
         estimate_positions=config["data"]["validation_estimate_positions"],
         n_steps=config["data"]["validation_n_steps"],
-        temporal_window_size=config["data"]["validation_temporal_window_size"]
+        temporal_window_size=config["data"]["validation_temporal_window_size"],
+        ignore_control=config["data"]["validation_ignore_control"]
         
     )
 

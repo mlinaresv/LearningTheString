@@ -61,12 +61,12 @@ def inference_during_training(
     val_solver = SAVSolver(model=model, sr=sr, lib='torch')
 
     # Get the different quantities.
-    state = torch.from_numpy(dataset.file['states'][:, 0:dataset.temporal_window_size]).float()
+    state = torch.from_numpy(dataset.file['states'][:, dataset.max_applied_control_index: dataset.max_applied_control_index + dataset.temporal_window_size]).float()
 
     # Obtain the position, momentum and control.
     q0 = state[..., :dataset.n] if not dataset.estimate_positions else state[..., dataset.index]
     p0 = state[..., dataset.n: dataset.n * 2] if not dataset.estimate_positions else None
-    u = torch.from_numpy(dataset.file['states'][:, dataset.temporal_window_size - 1:, -1]).float()
+    u = torch.from_numpy(dataset.file['states'][:,dataset.max_applied_control_index + dataset.temporal_window_size - 1:, -1]).float()
     exc_pos = torch.from_numpy(dataset.file['exc'][:]).float()
     
     # If estimation the initial state is needed.

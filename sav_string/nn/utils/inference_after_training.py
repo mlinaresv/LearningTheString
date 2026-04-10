@@ -40,7 +40,8 @@ def infer_a_model(results_path: str, test_audio_duration: float):
         estimate_sav=config["data"]["validation_estimate_sav"],
         estimate_positions=config["data"]["validation_estimate_positions"],
         n_steps=config["data"]["validation_n_steps"],
-        temporal_window_size=config["data"]["validation_temporal_window_size"]
+        temporal_window_size=config["data"]["validation_temporal_window_size"],
+        ignore_control=True
         
     )
 

@@ -102,8 +102,6 @@ def train(
                     qnext, pnext, q0_, p0_ = solver.multi_time_step(estimator=estimator, q0=q, unow=u, excitation_position=exc_pos, train=True, n_steps=train_dataset.n_steps)
                 else:
                     preds = model(q, n_steps=train_dataset.n_steps)
-                    if train_dataset.normalize:
-                        preds = (preds * train_dataset.std_pos) + train_dataset.mean_pos
                 
                 # Define the observation loss.
                 observation_loss = 0.0
@@ -115,9 +113,6 @@ def train(
                     
                     # Estimated observation at time t+n_steps.
                     preds = decoder(qnext, pnext)
-
-                    if train_dataset.normalize:
-                        preds = (preds * train_dataset.std_pos) + train_dataset.mean_pos
 
                     # Estimated initial state.
                     reconstructed_actual_observation = decoder(q0_, p0_)

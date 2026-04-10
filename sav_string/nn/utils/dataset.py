@@ -52,7 +52,8 @@ class H5TimeShiftDataset(Dataset):
             estimate_positions: bool = False,
             n_steps: int = 1,
             temporal_window_size: int = 1,
-            normalize: bool = False
+            normalize: bool = False,
+            ignore_control: bool = False
 
         ):
 
@@ -66,6 +67,7 @@ class H5TimeShiftDataset(Dataset):
         self.n_steps = n_steps
         self.temporal_window_size = temporal_window_size
         self.normalize = normalize
+        self.ignore_control = ignore_control
         self.file = None  # will be opened lazily per worker.
 
         if not lazy_access:
@@ -95,6 +97,7 @@ class H5TimeShiftDataset(Dataset):
         if self.normalize:
             self.mean_pos = torch.tensor(self.file['pos_mean_per_node'][:][self.index]).float()
             self.std_pos = torch.tensor(self.file['pos_std_per_node'][:][self.index]).float()
+        self.max_applied_control_index = int(0.03 * 88200) if self.ignore_control else 0
 
 
     def _init_file(self):
@@ -103,15 +106,15 @@ class H5TimeShiftDataset(Dataset):
 
 
     def __len__(self):
-        return self.N * (self.T - self.n_steps - self.temporal_window_size + 1)
+        return self.N * (self.T - self.n_steps - self.temporal_window_size + 1 - self.max_applied_control_index)
 
 
     def __getitem__(self, idx):
 
-        n_idx = idx // (self.T - self.n_steps - self.temporal_window_size + 1)
-        t_idx = idx % (self.T - self.n_steps - self.temporal_window_size + 1)
+        n_idx = idx // (self.T - self.n_steps - self.temporal_window_size + 1 - self.max_applied_control_index)
+        t_idx = idx % (self.T - self.n_steps - self.temporal_window_size + 1 - self.max_applied_control_index)
 
-        t_idx = t_idx + self.temporal_window_size - 1
+        t_idx = t_idx + self.max_applied_control_index + self.temporal_window_size - 1
 
 
         if not self.lazy_access:
@@ -180,11 +183,12 @@ class H5TimeShiftDataset(Dataset):
                 # Get the position.
                 q = state[..., self.index]
 
-                if self.normalize:                
-                    q = (q - self.mean_pos) / self.std_pos
-
                 # The output is only the position at a given index.
                 y = y[..., self.index]
+
+                if self.normalize:                
+                    q = (q - self.mean_pos) / self.std_pos
+                    y = (y - self.mean_pos) / self.std_pos
 
                 return (q, u, exc_position), y
 
