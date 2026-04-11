@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
@@ -36,7 +37,7 @@ def train(
         sr: int,
         model: PHNNString | MLPNextValue | ConvSequenceModel,
         solver,
-        estimator: StateEstimator | None,
+        estimator: StateEstimator | TransformerStateEstimator | None,
         decoder: StateDecoder | None,
         train_dataset: H5TimeShiftDataset, 
         val_dataset: H5TimeShiftDataset, 
@@ -50,6 +51,7 @@ def train(
         device: str,
         log_each_n_epochs: int,
         log_each_n_updates: int,
+        infer_each_n_updates: int,
         test_audio_duration: float,
         test_q_interval: list 
 
@@ -60,6 +62,9 @@ def train(
     
     # TensorBoard
     writer = SummaryWriter(log_dir=log_dir)
+
+    # Define whether the reference information has been saved.
+    saved_reference = False
 
     for epoch in range(1, epochs + 1):
 
@@ -124,9 +129,14 @@ def train(
                     else:
                         pass
 
-                for l in range(train_dataset.n_steps):
-                    observation_loss += baseline_loss_function(preds[:, l], state_n_1) 
-                    assert not torch.isnan(observation_loss)
+                if decoder is not None:
+                    for l in range(train_dataset.n_steps):
+                        observation_loss += baseline_loss_function(preds[:, l], state_n_1) 
+                        assert not torch.isnan(observation_loss)
+                else:
+                    for l in range(train_dataset.n_steps):
+                        observation_loss += baseline_loss_function(preds[:, l], state_n_1[:, -1]) 
+                        assert not torch.isnan(observation_loss)
 
 
             ###### LOSS COMPUTATION AND BACKPROPAGATION ######
@@ -137,7 +147,7 @@ def train(
                 if decoder is None:
 
                     # Latent estimation consistency loss.
-                    latent_estimation_loss = latent_estimation_consistency_loss(
+                    latent_estimation_loss, estimated_q = latent_estimation_consistency_loss(
                         n_steps=train_dataset.n_steps,
                         temporal_window_size=train_dataset.temporal_window_size,
                         observations=state_n_1,
@@ -147,7 +157,10 @@ def train(
                         criterion=reconstruction_loss_function
                     )
 
-                    loss = observation_loss + latent_estimation_loss
+                    # Inform about the nature of the momentum.
+                    approx_momentum = model.h * model.rhol * ((estimated_q - q0_) / solver.dt)
+                    momentum_loss = reconstruction_loss_function(approx_momentum, p0_)
+                    loss = observation_loss + latent_estimation_loss + momentum_loss
                     
                 else:
 
@@ -183,9 +196,10 @@ def train(
 
             assert not torch.isnan(loss)
 
-            if i % log_each_n_updates == 0:
+            # Define the desired index.
+            index = (epoch - 1) * len(train_loader) + i
 
-                index = (epoch - 1) * len(train_loader) + i
+            if index % log_each_n_updates == 0:
 
                 # Write gradients coming from the baseline loss.
                 if isinstance(model, PHNNString):
@@ -207,15 +221,13 @@ def train(
             optimizer.step()
 
             training_running_loss += loss.item() * state_n_1.size(0)
-
-
+        
             ###### LOGGING ######
             if epoch % log_each_n_epochs == 0:
 
-                if i % log_each_n_updates == 0:
+                if index % log_each_n_updates == 0:
 
                     ###### LOSS LOGGING ######
-                    index = (epoch - 1) * len(train_loader) + i
                     writer.add_scalar("Train/Loss", observation_loss, index)
                     if reconstruction_loss_actual_state is not None:
                         writer.add_scalar("Train/ReconstructionLoss_{t}", reconstruction_loss_actual_state, index)
@@ -223,6 +235,8 @@ def train(
                         writer.add_scalar("Train/ReconstructionLoss_{t+1}", reconstruction_loss_next_state, index)
                     if latent_estimation_loss is not None: 
                         writer.add_scalar("Train/ConsistencyLoss", latent_estimation_loss, index)
+                    if momentum_loss is not None:
+                        writer.add_scalar("Train/MomentumLoss", momentum_loss, index)
                     
                     ###### MODEL CHECKPOINT ######
                     model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
@@ -231,7 +245,7 @@ def train(
 
                     torch.save({
                         "epoch": epoch,
-                        "update": i,
+                        "update": index,
                         "model_state_dict": model_state_dict,
                         "estimator_state_dict": estimator_state_dict,
                         "decoder_state_dict": decoder_state_dict,
@@ -322,137 +336,153 @@ def train(
 
 
 
-        # ###### INFERENCE ######
-        with torch.inference_mode():
+            if index % infer_each_n_updates == 0 and index > 0:
 
-            ###### GROUND TRUTH INFORMATION ######
-            ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
-            ground_truth_observation = ground_truth_inference[..., val_dataset.index]
-            ground_truth_initial_position = ground_truth_inference[:, -1]
-            ground_truth_initial_window = torch.from_numpy(val_dataset.file['states'][:, :val_dataset.temporal_window_size, val_dataset.index])
+                # Set everything to evaluation mode.
+                model.eval()
+                if isinstance(model, PHNNString):
+                    estimator.eval()
+                if decoder is not None:
+                    decoder.eval()
 
-            ###### PREDICTION ######
-            p_trajectory_infer, q_trajectory_infer, next_observation_infer = inference_during_training(
-                model=model,
-                dataset=val_dataset,
-                sr=sr,
-                duration=test_audio_duration,
-                device=device,
-                estimator=estimator,
-                decoder=decoder,
-                mean_pos=train_dataset.mean_pos,
-                std_pos=train_dataset.std_pos
-            )
+                # ###### INFERENCE ######
+                with torch.inference_mode():
 
-            if isinstance(model, PHNNString):
+                    ###### GROUND TRUTH INFORMATION ######
+                    ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.max_applied_control_index + val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
+                    ground_truth_observation = ground_truth_inference[..., val_dataset.index]
+                    ground_truth_initial_position = ground_truth_inference[:, -1]
+                    ground_truth_initial_window = torch.from_numpy(val_dataset.file['states'][:, val_dataset.max_applied_control_index: val_dataset.max_applied_control_index + val_dataset.temporal_window_size, val_dataset.index])
 
-                prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
+                    ###### PREDICTION ######
+                    p_trajectory_infer, q_trajectory_infer, next_observation_infer = inference_during_training(
+                        model=model,
+                        dataset=val_dataset,
+                        sr=sr,
+                        n_trajectories=train_dataset.n,
+                        duration=test_audio_duration,
+                        device=device,
+                        estimator=estimator,
+                        decoder=decoder,
+                        mean_pos=train_dataset.mean_pos,
+                        std_pos=train_dataset.std_pos
+                    )
 
-                # Get the predicted initial positions.
-                predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
-                predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
+                    if isinstance(model, PHNNString):
 
-                # Compute the different inference losses.
-                mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference).item()
-                writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error, epoch)
-                mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference).item()
-                writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error, epoch)
-                mae_t_inference_error = (mae_inference_error / (solver.dt))
-                writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, epoch)
-                mse_initial_position_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
-                writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, epoch)
+                        prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
 
-            ###### OBSERVATION ERROR ######
-            mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
-            writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error, epoch)
+                        # Get the predicted initial positions.
+                        predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
+                        predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
 
-            # Define the inference error metric to keep the model and to save inside the checkpoints.
-            baseline_inference_error = float('inf')
-            inference_error = mse_inference_error if isinstance(model, PHNNString) else mse_observation_error
+                        # Compute the different inference losses.
+                        mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference).item()
+                        writer.add_scalar("Validation/InferenceLoss(MSE)", mse_inference_error, index)
+                        mae_inference_error = nn.L1Loss()(prediction_inference, ground_truth_inference).item()
+                        writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error, index)
+                        mae_t_inference_error = (mae_inference_error / (solver.dt))
+                        writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, index)
+                        mse_initial_state_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
+                        writer.add_scalar("Validation/InitialStateEstimation(MSE)", mse_initial_state_error, index)
+                        mse_initial_position_error = nn.MSELoss()(predicted_initial_position[..., :train_dataset.n], ground_truth_initial_position[..., :train_dataset.n]).item()
+                        writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, index)
+                        mse_initial_momentum_error = nn.MSELoss()(predicted_initial_position[..., train_dataset.n:], ground_truth_initial_position[..., train_dataset.n:]).item()
+                        writer.add_scalar("Validation/InitialMomentumEstimation(MSE)", mse_initial_momentum_error, index)
 
-            # Compute and write the nonquadratic energy error with respect to the ground truth function.
-            if hasattr(model, 'Enl_'):
-                writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), epoch)
+                    ###### OBSERVATION ERROR ######
+                    mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
+                    writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error, index)
 
-        if epoch == 1 or (inference_error < baseline_inference_error) or (mse_observation_error < baseline_inference_error):
+                    # Define the inference error metric to keep the model and to save inside the checkpoints.
+                    inference_error = mse_inference_error if isinstance(model, PHNNString) else mse_observation_error
+                    inference_error = inference_error if not np.isnan(inference_error) else torch.tensor([float('inf')])
 
-            ###### INFERENCE BASELINE UPDATE ######
-            baseline_inference_error = inference_error if inference_error > 0 else mse_observation_error
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model_state_dict,
-                "estimator_state_dict": estimator_state_dict,
-                "decoder_state_dict": decoder_state_dict,
-                "inference_error": inference_error,
-                "observation_error": mse_observation_error
-            }, f"./{log_dir}/best_model.pth")
+                    # Compute and write the nonquadratic energy error with respect to the ground truth function.
+                    if hasattr(model, 'Enl_'):
+                        writer.add_scalar("Validation/NonLinearEnergyLoss", compute_non_linear_energy_error(model, test_q_interval, device=device).item(), index)
 
+                if not saved_reference or (inference_error < baseline_inference_error) or (mse_observation_error < baseline_inference_error):
 
-            ###### LISTEN TO THE MODEL PREDICTION ######
-            information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else next_observation_infer[0].numpy()
-            
-            _, _, tensorboard_audio_pred = listen_to_a_trajectory(
-                p_trajectory=information_listened,
-                sr=sr,
-                filename=f'{log_dir}/what_does_the_model_say'
-            )
-
-            # Log the audio prediction from the guitar string.
-            writer.add_audio(
-                tag="audio/epoch",
-                snd_tensor=tensorboard_audio_pred,
-                global_step=epoch,
-                sample_rate=sr
-            )
+                    ###### INFERENCE BASELINE UPDATE ######
+                    baseline_inference_error = inference_error if inference_error > 0 else mse_observation_error
+                    torch.save({
+                        "epoch": epoch,
+                        "model_state_dict": model_state_dict,
+                        "estimator_state_dict": estimator_state_dict,
+                        "decoder_state_dict": decoder_state_dict,
+                        "inference_error": inference_error,
+                        "observation_error": mse_observation_error
+                    }, f"./{log_dir}/best_model.pth")
 
 
-            ###### SPECTROGRAM CREATION ######
-            pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString)))  else information_listened
+                    ###### LISTEN TO THE MODEL PREDICTION ######
+                    information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else next_observation_infer[0].numpy()
+                    
+                    _, _, tensorboard_audio_pred = listen_to_a_trajectory(
+                        p_trajectory=information_listened,
+                        sr=sr,
+                        filename=f'{log_dir}/what_does_the_model_say'
+                    )
 
-            # Prediction spectrogram.
-            try:
-                spec_pred = make_spectrogram_image(pmid_pred, sr)          
-                spec_pred.savefig(f'{log_dir}/predicted_spectrogram_epoch_{epoch}.pdf')
-                plt.close(spec_pred)  # avoid memory leaks
-            except ParameterError:
-                pass
+                    # Log the audio prediction from the guitar string.
+                    writer.add_audio(
+                        tag="audio/step",
+                        snd_tensor=tensorboard_audio_pred,
+                        global_step=index,
+                        sample_rate=sr
+                    )
 
-            # Error spectrogram.
-            p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else ground_truth_observation[0].numpy()
-            pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString))) else p_ref
-            error = pmid_pred - pmid_ref
-            try:
-                spec_error = make_spectrogram_image(error, sr)          
-                spec_error.savefig(f'{log_dir}/error_spectrogram_epoch_{epoch}.pdf')
-                plt.close(spec_error)  # avoid memory leaks
-            except ParameterError:
-                pass
 
-            if epoch == 1:
+                    ###### SPECTROGRAM CREATION ######
+                    pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString)))  else information_listened
 
-                # Listen to the reference audio.
-                _, _, _ = listen_to_a_trajectory(
-                    p_trajectory=p_ref,
-                    sr=sr,
-                    filename=f'{log_dir}/reference'
-                )
+                    # Prediction spectrogram.
+                    try:
+                        spec_pred = make_spectrogram_image(pmid_pred, sr)          
+                        spec_pred.savefig(f'{log_dir}/predicted_spectrogram_step_{index}.pdf')
+                        plt.close(spec_pred)  # avoid memory leaks
+                    except ParameterError:
+                        pass
 
-                # Create the reference spectrogram.
-                try:
-                    spec_ref = make_spectrogram_image(pmid_ref, sr)
-                    spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
-                    plt.close(spec_ref)  # avoid memory leaks
-                except ParameterError:
-                    pass
+                    # Error spectrogram.
+                    p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else ground_truth_observation[0].numpy()
+                    pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString))) else p_ref
+                    error = pmid_pred - pmid_ref
+                    try:
+                        spec_error = make_spectrogram_image(error, sr)          
+                        spec_error.savefig(f'{log_dir}/error_spectrogram_step_{index}.pdf')
+                        plt.close(spec_error)  # avoid memory leaks
+                    except ParameterError:
+                        pass
 
-        # Clean all the intermediate variable for inference.
-        del ground_truth_inference, ground_truth_observation, ground_truth_initial_position, ground_truth_initial_window
-        del p_trajectory_infer, q_trajectory_infer, next_observation_infer
-        if isinstance(model, PHNNString):
-            del prediction_inference, predicted_initial_position_q, predicted_initial_position_p, predicted_initial_position
-        torch.cuda.empty_cache() 
-        del model_state_dict, decoder_state_dict, estimator_state_dict
-        gc.collect()
+                    if not saved_reference:
+
+                        # Listen to the reference audio.
+                        _, _, _ = listen_to_a_trajectory(
+                            p_trajectory=p_ref,
+                            sr=sr,
+                            filename=f'{log_dir}/reference'
+                        )
+
+                        # Create the reference spectrogram.
+                        try:
+                            spec_ref = make_spectrogram_image(pmid_ref, sr)
+                            spec_ref.savefig(f'{log_dir}/reference_spec.pdf')
+                            plt.close(spec_ref)  # avoid memory leaks
+                        except ParameterError:
+                            pass
+
+                        saved_reference = True
+
+                # Clean all the intermediate variable for inference.
+                del ground_truth_inference, ground_truth_observation, ground_truth_initial_position, ground_truth_initial_window
+                del p_trajectory_infer, q_trajectory_infer, next_observation_infer
+                if isinstance(model, PHNNString):
+                    del prediction_inference, predicted_initial_position_q, predicted_initial_position_p, predicted_initial_position
+                torch.cuda.empty_cache() 
+                del model_state_dict, decoder_state_dict, estimator_state_dict
+                gc.collect()
         
 
     writer.close()

@@ -2,10 +2,12 @@ import torch
 from torch.optim import Adam
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.baseline import load_baseline_model
+from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 
 def load_estimator(
 
+    architecture_type: str,
     input_dim: int,
     hidden_dim: int,
     n: int,
@@ -18,15 +20,27 @@ def load_estimator(
 
     print('--> Define the estimator...')
 
-    estimator = StateEstimator(
+    if architecture_type == 'mlp':
 
-        input_dim=input_dim,
-        hidden_dim=hidden_dim,
-        n=n,
-        index=index,
-        positioning_hard_constraint=positioning_hard_constraint
+        estimator = StateEstimator(
 
-    )
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            n=n,
+            index=index,
+            positioning_hard_constraint=positioning_hard_constraint
+
+        )
+
+    elif architecture_type == 'transformer':
+
+        estimator = TransformerStateEstimator(
+
+            input_dim=1,
+            output_dim=2 * n
+            
+        )
+
 
     print(f'--> Estimator with {sum(p.numel() for p in estimator.parameters() if p.requires_grad)} trainable parameters loaded!')
 

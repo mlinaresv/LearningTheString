@@ -72,7 +72,7 @@ class SAVSolver():
             - J0 * (self.model.K_op(qnext))
             + Bn_p
             - gn * rn
-            + (self.model.G(excitation_position) * unow[:, None, None]).squeeze()
+            + (self.model.G(excitation_position).to(unow.device) * unow[:, None, None]).squeeze()
         )
 
         # Apply Sherman–Morrison inverse
@@ -180,34 +180,61 @@ class SAVSolver():
         return p_trajectory, q_trajectory, r_trajectory
 
 
-    def integrate_encoding_decoding_model(self, q0, u_func, duration, excitation_position, estimator, decoder):
+    def integrate_encoding_decoding_model(
+
+        self, 
+        q0, 
+        u_func, 
+        duration, 
+        excitation_position, 
+        estimator, 
+        decoder,
+        mean_pos=None,
+        std_pos=None,
+        device='cpu'
+    ):
 
         # Time vector.
         self.Nt = int(duration / self.dt) if isinstance(u_func, types.FunctionType) else u_func.shape[-1] - 1
         self.t = self.lib.arange(self.Nt) * self.dt
 
         # State initialization.
-        (qlast, plast), rnow = estimator(q0), None
+        if mean_pos is not None and std_pos is not None:
+            q0 = (q0 - mean_pos) / std_pos
+
+        (qlast, plast), rnow = estimator(q0.to(device)), None
         p_trajectory, q_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1, plast.shape[-1])), self.lib.zeros((*qlast.shape[:-1], self.Nt + 1, qlast.shape[-1]))
         observation_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1))
-        p_trajectory[..., 0, :] = plast
-        q_trajectory[..., 0, :] = qlast
-        observation_trajectory[..., 0] = q0[:, -1]
+        p_trajectory[..., 0, :] = plast.detach().cpu()
+        q_trajectory[..., 0, :] = qlast.detach().cpu()
+
+        # Keep the initial observation
+        if mean_pos is not None and std_pos is not None:
+            observation_trajectory[..., 0] = (q0[:, -1] * std_pos) + mean_pos
+        else:
+            observation_trajectory[..., 0] = q0[:, -1]
 
         # Main loop.
         for i in range(self.Nt):
 
             # Define the control at the time step.            
-            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
-            qnext, pnext, _ = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
+            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i].to(device)
+            qnext, pnext, _ = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position, device=device)
 
             # Get the next observation.
             next_observation = decoder(qnext, pnext)
-            qlast, plast = estimator(next_observation)
+
+            # Create the new q0 object.
+            q0 = torch.cat([q0[:, 1:], next_observation[:, -1:].detach().cpu()], dim=-1)
+            qlast, plast = estimator(q0.to(device))
 
             # Append the new generated states to the final trajectory.
-            p_trajectory[..., i + 1, :] = pnext
-            q_trajectory[..., i + 1, :] = qnext
-            observation_trajectory[..., i + 1] = next_observation[:, -1]
+            p_trajectory[..., i + 1, :] = pnext.detach().cpu()
+            q_trajectory[..., i + 1, :] = qnext.detach().cpu()
+
+            if mean_pos is not None and std_pos is not None:
+                observation_trajectory[..., i + 1] = (next_observation[:, -1].detach().cpu() * std_pos) + mean_pos
+            else:
+                observation_trajectory[..., i + 1] = next_observation[:, -1].detach().cpu()
 
         return p_trajectory, q_trajectory, observation_trajectory

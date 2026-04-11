@@ -104,4 +104,4 @@ def latent_estimation_consistency_loss(
         predicted_complete_state = torch.concat((predicted_q[:, m], predicted_p[:, m]), axis=-1)  
         latent_estimation_consistency_loss += criterion(predicted_complete_state, estimated_predicted_complete_state)
 
-    return latent_estimation_consistency_loss
+    return latent_estimation_consistency_loss, estimated_q

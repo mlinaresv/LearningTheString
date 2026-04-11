@@ -97,6 +97,9 @@ class H5TimeShiftDataset(Dataset):
         if self.normalize:
             self.mean_pos = torch.tensor(self.file['pos_mean_per_node'][:][self.index]).float()
             self.std_pos = torch.tensor(self.file['pos_std_per_node'][:][self.index]).float()
+        else:
+            self.mean_pos = None
+            self.std_pos = None
         self.max_applied_control_index = int(0.03 * 88200) if self.ignore_control else 0
 
 

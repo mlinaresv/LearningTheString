@@ -9,6 +9,7 @@ import librosa.display
 from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
+from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
@@ -22,9 +23,10 @@ def inference_during_training(
         model: PHNNString | MLPNextValue | ConvSequenceModel, 
         dataset: H5TimeShiftDataset,
         sr: int,
+        n_trajectories: int,
         duration: float | int,
         device: str,
-        estimator: StateEstimator | None,
+        estimator: StateEstimator | TransformerStateEstimator | None,
         decoder: StateDecoder | None,
         mean_pos = None,
         std_pos = None
@@ -61,13 +63,13 @@ def inference_during_training(
     val_solver = SAVSolver(model=model, sr=sr, lib='torch')
 
     # Get the different quantities.
-    state = torch.from_numpy(dataset.file['states'][:, dataset.max_applied_control_index: dataset.max_applied_control_index + dataset.temporal_window_size]).float()
+    state = torch.from_numpy(dataset.file['states'][:n_trajectories, dataset.max_applied_control_index: dataset.max_applied_control_index + dataset.temporal_window_size]).float()
 
     # Obtain the position, momentum and control.
-    q0 = state[..., :dataset.n] if not dataset.estimate_positions else state[..., dataset.index]
-    p0 = state[..., dataset.n: dataset.n * 2] if not dataset.estimate_positions else None
-    u = torch.from_numpy(dataset.file['states'][:,dataset.max_applied_control_index + dataset.temporal_window_size - 1:, -1]).float()
-    exc_pos = torch.from_numpy(dataset.file['exc'][:]).float()
+    q0 = state[..., :dataset.n].to(device) if not dataset.estimate_positions else state[..., dataset.index].to(device)
+    p0 = state[..., dataset.n: dataset.n * 2].to(device) if not dataset.estimate_positions else None
+    u = torch.from_numpy(dataset.file['states'][:n_trajectories, dataset.max_applied_control_index + dataset.temporal_window_size - 1:, -1]).float().to(device)
+    exc_pos = torch.from_numpy(dataset.file['exc'][:n_trajectories]).float()
     
     # If estimation the initial state is needed.
     q_trajectory, p_trajectory, next_observation = None, None, None
@@ -76,17 +78,42 @@ def inference_during_training(
 
         if decoder is None:
 
+            if mean_pos is not None and std_pos is not None:
+                q0 = (q0 - mean_pos) / std_pos
+
             if dataset.estimate_positions:
                 q0, p0 = estimator(q0)
 
             p_trajectory, q_trajectory, _ = val_solver.integrate(q0, p0, u, duration, exc_pos)
+            next_observation = q_trajectory[..., dataset.index]
 
         else:
 
-            p_trajectory, q_trajectory, next_observation = val_solver.integrate_encoding_decoding_model(q0, u, duration, exc_pos, estimator, decoder)
+            p_trajectory, q_trajectory, next_observation = val_solver.integrate_encoding_decoding_model(
+
+                q0, 
+                u, 
+                duration, 
+                exc_pos, 
+                estimator, 
+                decoder, 
+                mean_pos=mean_pos, 
+                std_pos=std_pos, 
+                device=device
+
+            )
 
     else:
-        next_observation = model.rollout(q0, u.shape[-1] - 1, mean_pos=mean_pos, std_pos=std_pos, device=device)
+
+        next_observation = model.rollout(
+
+            q0, 
+            u.shape[-1] - 1, 
+            mean_pos=mean_pos, 
+            std_pos=std_pos, 
+            device=device
+            
+        )
 
 
     if isinstance(model, PHNNString):
@@ -279,7 +306,7 @@ def write_stability_conditions(
 def write_model_gradients(
         
         writer: SummaryWriter,
-        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel,
+        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel | TransformerStateEstimator,
         index: int,
         label: str
 
@@ -303,7 +330,7 @@ def write_model_gradients(
     # Compute the gradient norms.
     total_linear_norm = 0.0
     for module in model.modules():
-        if isinstance(module, nn.Linear) or isinstance(module, nn.Conv1d):
+        if isinstance(module, nn.Linear) or isinstance(module, nn.Conv1d) or isinstance(module, nn.TransformerEncoderLayer):
             for param in module.parameters():
                 if param.grad is not None:
                     total_linear_norm += param.grad.norm().item() ** 2

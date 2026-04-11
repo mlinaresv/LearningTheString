@@ -92,6 +92,7 @@ def main(config_path='test_configuration.yaml'):
     if config["general_architecture"]["model_type"] != 'baseline':
 
         estimator = load_estimator(
+            architecture_type=config["estimator"]["architecture_type"],
             input_dim=train_dataset.temporal_window_size,
             hidden_dim=config["estimator"]["hidden_dim"],
             n=train_dataset.n,
@@ -169,6 +170,7 @@ def main(config_path='test_configuration.yaml'):
         device=device,
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
+        infer_each_n_updates=config["train"]["infer_each_n_updates"],
         log_dir=log_dir,
         test_audio_duration=config["train"]["test_audio_duration"],
         test_q_interval=config["train"]["test_q_interval"]
