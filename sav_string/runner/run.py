@@ -1,45 +1,14 @@
-import os
 import sys
-import yaml
-import torch
-import random 
-import numpy as np
-from datetime import datetime
 sys.path.append('/u/anasynth/linares/LearningTheString')
-from sav_string.train import train, build_dataloaders
-from sav_string.nn.utils import manage_gpus as mgp
+from sav_string.train import train
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.sav_solver import SAVSolver
 from sav_string.runner.utils import load_estimator, load_decoder, load_model, load_optimizer
 from sav_string.nn.utils.training import define_loss_function
 
-def set_seed(seed):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
 
 
-def main(config_path='test_configuration.yaml'):
-
-
-    # LOAD CONFIGURATION FILE.
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-
-
-    # SET SEED.
-    set_seed(config["seed"])
-
-
-    # DEFINE THE DEVICE.
-    try:
-        gpu_id = mgp.get_gpu_lock(gpu_device_id=config["gpu_id"])
-        os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_id}"
-        print(f'Training initialized on GPU#{gpu_id}')
-    except mgp.NoGpuManager:
-        print(f'Training on the one and only one GPU!')
-        
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+def main(config: dict, n_traj: int, log_dir: str, device: str):
 
 
     # DEFINE THE DATASETS AND DATALOADERS.
@@ -48,7 +17,7 @@ def main(config_path='test_configuration.yaml'):
     train_dataset = H5TimeShiftDataset(
 
         h5path=config["data"]["training_dataset_path"], 
-        number_of_trajectories=config["data"]["training_number_of_trajectories"],
+        number_of_trajectories=n_traj,
         lazy_access=config["data"]["training_lazy_access"],
         estimate_sav=config["data"]["training_estimate_sav"],
         estimate_positions=config["data"]["training_estimate_positions"],
@@ -124,15 +93,6 @@ def main(config_path='test_configuration.yaml'):
         decoder = None
 
 
-    # DETERMINE THE LOGGING DIRECTORY.
-    log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(f'./{log_dir}')
-    # Configuration file.
-    output_path = f'./{log_dir}/config.yaml'
-    with open(output_path, 'w') as f:
-        yaml.safe_dump(config, f)
-
-
     # DEFINE THE NUMERICAL SOLVER.
     solver = SAVSolver(model, sr=config["train"]["sampling_rate"], lib='torch')
 
@@ -167,6 +127,7 @@ def main(config_path='test_configuration.yaml'):
         reconstruction_loss_function=reconstruction_loss,
         optimizer=optimizer,
         epochs=config["train"]["epochs"],
+        max_steps=config["train"]["max_steps"],
         device=device,
         log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
@@ -176,7 +137,3 @@ def main(config_path='test_configuration.yaml'):
         test_q_interval=config["train"]["test_q_interval"]
 
     )
-
-
-if __name__ == '__main__':
-    main()
