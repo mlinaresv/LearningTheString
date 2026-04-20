@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 from tensorboard.backend.event_processing import event_accumulator
 
-def plot_tensorboard_scalars(log_dirs, tags=None, labels=None):
+def plot_tensorboard_scalars(log_dirs, tags=None, labels=None, colors=None):
     """
     Plot scalar data from multiple TensorBoard runs.
 
@@ -43,7 +43,7 @@ def plot_tensorboard_scalars(log_dirs, tags=None, labels=None):
     for i, tag in enumerate(tags):
         ax = axes[i][0]
 
-        for ea, label in zip(eas, labels):
+        for ea, label, color in zip(eas, labels, colors):
             available_tags = ea.Tags()['scalars']
 
             if tag not in available_tags:
@@ -54,7 +54,7 @@ def plot_tensorboard_scalars(log_dirs, tags=None, labels=None):
             steps = [e.step for e in events]
             values = [e.value for e in events]
 
-            ax.plot(steps, values, label=label)
+            ax.plot(steps, values, label=label, color=color)
 
         ax.set_title(tag)
         ax.set_xlabel("Step")

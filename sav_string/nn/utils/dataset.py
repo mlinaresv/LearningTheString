@@ -166,6 +166,10 @@ class H5TimeShiftDataset(Dataset):
 
             if not self.estimate_positions:
 
+                if self.temporal_window_size == 1:
+                    state = state[0]
+                    y = y[..., :-2]
+
                 # Get the position.
                 q = state[..., :self.n]
                 

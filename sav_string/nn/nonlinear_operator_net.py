@@ -133,8 +133,8 @@ class LearnableEnergy(nn.Module):
         per_element = self.mlp(features) ** 2
 
         # Sum local energies to obtain the total one.
-        sum = per_element.sum(dim=1)
-        return sum
+        sum_ = per_element.sum(dim=1)
+        return sum_
     
 
 @beartype

@@ -68,11 +68,14 @@ class SAVSolver():
             - self.model.Rsv_op(M * plast)
         )
 
+        # Right hand-side of the momentum update.
+        control_term = ((self.model.G(excitation_position).to(unow.device) * unow[:, None, None]).squeeze() if self.lib_str != 'numpy' else
+                        (self.model.G(excitation_position) * unow[:, None, None]).squeeze())
         rhs = (
             - J0 * (self.model.K_op(qnext))
             + Bn_p
             - gn * rn
-            + (self.model.G(excitation_position).to(unow.device) * unow[:, None, None]).squeeze()
+            + control_term
         )
 
         # Apply Sherman–Morrison inverse
@@ -191,7 +194,6 @@ class SAVSolver():
         decoder,
         mean_pos=None,
         std_pos=None,
-        device='cpu'
     ):
 
         # Time vector.
@@ -202,7 +204,7 @@ class SAVSolver():
         if mean_pos is not None and std_pos is not None:
             q0 = (q0 - mean_pos) / std_pos
 
-        (qlast, plast), rnow = estimator(q0.to(device)), None
+        (qlast, plast), rnow = estimator(q0), None
         p_trajectory, q_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1, plast.shape[-1])), self.lib.zeros((*qlast.shape[:-1], self.Nt + 1, qlast.shape[-1]))
         observation_trajectory = self.lib.zeros((*plast.shape[:-1], self.Nt + 1))
         p_trajectory[..., 0, :] = plast.detach().cpu()
@@ -218,15 +220,15 @@ class SAVSolver():
         for i in range(self.Nt):
 
             # Define the control at the time step.            
-            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i].to(device)
-            qnext, pnext, _ = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position, device=device)
+            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
+            qnext, pnext, _ = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
 
             # Get the next observation.
             next_observation = decoder(qnext, pnext)
 
             # Create the new q0 object.
-            q0 = torch.cat([q0[:, 1:], next_observation[:, -1:].detach().cpu()], dim=-1)
-            qlast, plast = estimator(q0.to(device))
+            q0 = torch.cat([q0[:, 1:], next_observation[:, -1:]], dim=-1)
+            qlast, plast = estimator(q0)
 
             # Append the new generated states to the final trajectory.
             p_trajectory[..., i + 1, :] = pnext.detach().cpu()

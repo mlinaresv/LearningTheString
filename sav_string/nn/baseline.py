@@ -59,22 +59,26 @@ class MLPNextValue(nn.Module):
         x = x_init.clone()
 
         # Add the initial state.
-        preds.append(x[:, -1:])
+        preds.append(x[:, -1:].detach().cpu())
 
         for _ in range(steps):
 
             if mean_pos is not None and std_pos is not None:
                 x_in = (x - mean_pos) / std_pos
+            else:
+                x_in = x
 
             y_out = self.forward(x_in.to(device), n_steps=1).squeeze(1).detach().cpu()            # (batch, 1)
 
             if mean_pos is not None and std_pos is not None:
                 y = (y_out * std_pos) + mean_pos
+            else:
+                y = y_out
 
             preds.append(y[:, -1:])
 
             # shift window: drop first value, append prediction
-            x = torch.cat([x[:, 1:], y[:, -1:]], dim=1)
+            x = torch.cat([x[:, 1:].detach().cpu(), y[:, -1:]], dim=1)
 
         return torch.cat(preds, dim=1)
 
@@ -132,20 +136,32 @@ class ConvSequenceModel(nn.Module):
 
 
     @torch.no_grad()
-    def rollout(self, x_init, n_steps):
+    def rollout(self, x_init, n_steps, mean_pos=None, std_pos=None, device='cpu'):
         preds = []
-        generated = x_init.clone()
+        x = x_init.clone()
 
         # Add the initial state.
-        preds.append(generated[:, -1:])
+        preds.append(x[:, -1:].detach().cpu())
 
         for _ in range(n_steps):
-            y = self.forward(generated, n_steps=1).squeeze(1)
+
+            if mean_pos is not None and std_pos is not None:
+                x_in = (x - mean_pos) / std_pos
+            else:
+                x_in = x
+
+            y_out = self.forward(x_in.to(device), n_steps=1).squeeze(1).detach().cpu()
+
+            if mean_pos is not None and std_pos is not None:
+                y = (y_out * std_pos) + mean_pos
+            else:
+                y = y_out
+
             preds.append(y[:, -1:])
 
-            generated = torch.cat([generated[:, 1:], y[:, -1:]], dim=1)
+            x = torch.cat([x[:, 1:].detach().cpu(), y[:, -1:]], dim=1)
 
-        return torch.cat(preds, dim=1).detach().cpu()
+        return torch.cat(preds, dim=1)
 
 
 

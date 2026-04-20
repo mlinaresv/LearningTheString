@@ -12,13 +12,12 @@ def generate_video_from_trajectory(data):
     x = np.arange(data.shape[-1])
 
     line, = ax.plot(x, data[0])
-    ax.set_ylim(-1e-2, 1e-2)
-    ax.set_xlabel("Index (0–136)")
+    ax.set_ylim(data.min() * 1.1, data.max() * 1.1)
     ax.set_ylabel("Value")
 
     def update(frame):
         line.set_ydata(data[frame])
-        ax.set_title(f"Frame {frame}")
+        ax.set_title(f"Time: {frame/88.2e3:.3f}s")
         return line,
 
     ani = FuncAnimation(
@@ -30,7 +29,7 @@ def generate_video_from_trajectory(data):
     )
 
     print('Saving the video')
-    ani.save("output.mp4", fps=120)
+    ani.save("output.mp4", fps=240)
     print('Video saved')
     return 
 

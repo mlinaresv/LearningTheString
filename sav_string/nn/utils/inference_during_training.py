@@ -83,7 +83,9 @@ def inference_during_training(
 
             if dataset.estimate_positions:
                 q0, p0 = estimator(q0)
-
+            else:
+                q0, p0 = q0[:, 0], p0[:, 0]
+            
             p_trajectory, q_trajectory, _ = val_solver.integrate(q0, p0, u, duration, exc_pos)
             next_observation = q_trajectory[..., dataset.index]
 
@@ -98,8 +100,7 @@ def inference_during_training(
                 estimator, 
                 decoder, 
                 mean_pos=mean_pos, 
-                std_pos=std_pos, 
-                device=device
+                std_pos=std_pos
 
             )
 
@@ -220,7 +221,7 @@ def compute_non_linear_energy_error(
 def write_constant_parameters_errors(
         
         writer: SummaryWriter, 
-        model: PHNNString | MLPNextValue | ConvSequenceModel, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel | None, 
         index: int
 
     ) -> None:
@@ -270,7 +271,7 @@ def write_constant_parameters_errors(
 def write_stability_conditions(
         
         writer: SummaryWriter, 
-        model: PHNNString | MLPNextValue | ConvSequenceModel, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel | None, 
         index: int, 
         sr: int
         
@@ -306,7 +307,7 @@ def write_stability_conditions(
 def write_model_gradients(
         
         writer: SummaryWriter,
-        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel | TransformerStateEstimator,
+        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel | TransformerStateEstimator | None,
         index: int,
         label: str
 

@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss
+from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss, next_momentum_loss, energy_losses
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
@@ -76,6 +76,12 @@ def train(
             decoder.train()
 
         training_running_loss = 0.0
+        reconstruction_loss_actual_state = None
+        reconstruction_loss_next_state = None
+        latent_estimation_loss = None
+        momentum_loss = None
+        next_momentum_error = None
+        sobolev_1_loss, sobolev_2_loss = None, None
 
         # ###### TRAINING ######
         for i, (x_batch, y_batch) in enumerate(train_loader):
@@ -96,8 +102,10 @@ def train(
                 if train_dataset.estimate_sav:
                     r = torch.sqrt(model.Enl(r) + 1e-14)
 
-                qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u, excitation_position=exc_pos, train=True)
+                qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u[..., 0], excitation_position=exc_pos, train=True)
                 preds = torch.concat((qnext, pnext), axis=-1)
+
+                observation_loss = baseline_loss_function(preds, state_n_1[:, 0])
 
             else:
                 
@@ -110,9 +118,6 @@ def train(
                 
                 # Define the observation loss.
                 observation_loss = 0.0
-                reconstruction_loss_actual_state = None
-                reconstruction_loss_next_state = None
-                latent_estimation_loss = None
 
                 if decoder is not None:
                     
@@ -129,7 +134,7 @@ def train(
                     else:
                         pass
 
-                if decoder is not None:
+                if decoder is not None or not isinstance(model, PHNNString):
                     for l in range(train_dataset.n_steps):
                         observation_loss += baseline_loss_function(preds[:, l], state_n_1) 
                         assert not torch.isnan(observation_loss)
@@ -147,7 +152,7 @@ def train(
                 if decoder is None:
 
                     # Latent estimation consistency loss.
-                    latent_estimation_loss, estimated_q = latent_estimation_consistency_loss(
+                    latent_estimation_loss, estimated_q, estimated_p = latent_estimation_consistency_loss(
                         n_steps=train_dataset.n_steps,
                         temporal_window_size=train_dataset.temporal_window_size,
                         observations=state_n_1,
@@ -160,12 +165,26 @@ def train(
                     # Inform about the nature of the momentum.
                     approx_momentum = model.h * model.rhol * ((estimated_q - q0_) / solver.dt)
                     momentum_loss = reconstruction_loss_function(approx_momentum, p0_)
-                    loss = observation_loss + latent_estimation_loss + momentum_loss
+
+                    # Next momentum loss.
+                    next_momentum_error = next_momentum_loss(estimated_q, estimated_p, q0_, p0_, exc_pos, u[..., 0, :], solver, reconstruction_loss_function)
+
+                    # Derivative smoothness.
+                    # dqnext = (qnext[..., 0, 1:] - qnext[..., 0, :-1]) / model.h
+                    # destimated_q = (estimated_q[..., 1:] - estimated_q[..., :-1]) / model.h
+                    # sobolev_1_loss = torch.mean((dqnext - destimated_q)**2)
+
+                    # Second derivative smoothness.
+                    # d2qnext = (qnext[2:] - 2*qnext[1:-1] + qnext[:-2]) / model.h**2
+                    # d2estimated_q = (estimated_q[2:] - 2*estimated_q[1:-1] + estimated_q[:-2]) / model.h**2
+                    # sobolev_2_loss = torch.mean((d2qnext - d2estimated_q)**2)
+
+                    loss = observation_loss + latent_estimation_loss + momentum_loss + next_momentum_error #+ sobolev_1_loss + sobolev_2_loss
                     
                 else:
 
                     # Latent estimation consistency loss.
-                    latent_estimation_loss = latent_estimation_consistency_loss(
+                    latent_estimation_loss, estimated_q, estimated_p = latent_estimation_consistency_loss(
                         n_steps=train_dataset.n_steps,
                         temporal_window_size=train_dataset.temporal_window_size,
                         observations=state_n_1,
@@ -203,7 +222,8 @@ def train(
 
                 # Write gradients coming from the baseline loss.
                 if isinstance(model, PHNNString):
-                    write_gradients_with_respect_to_loss(writer, observation_loss, estimator, index, label='EstimatorBaselineLoss')
+                    if estimator is not None:
+                        write_gradients_with_respect_to_loss(writer, observation_loss, estimator, index, label='EstimatorBaselineLoss')
 
                     if decoder is not None:
                         write_gradients_with_respect_to_loss(writer, observation_loss, decoder, index, label='DecoderBaselineLoss')
@@ -237,10 +257,16 @@ def train(
                         writer.add_scalar("Train/ConsistencyLoss", latent_estimation_loss, index)
                     if momentum_loss is not None:
                         writer.add_scalar("Train/MomentumLoss", momentum_loss, index)
-                    
+                    if next_momentum_error is not None:
+                        writer.add_scalar("Train/NextMomentumLoss", next_momentum_error, index)
+                    if sobolev_1_loss is not None:
+                        writer.add_scalar("Train/Sobolev1Loss", sobolev_1_loss, index)
+                    if sobolev_2_loss is not None:
+                        writer.add_scalar("Train/Sobolev2Loss", sobolev_2_loss, index)
+
                     ###### MODEL CHECKPOINT ######
                     model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-                    estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if isinstance(model, PHNNString) else None
+                    estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if estimator is not None else None
                     decoder_state_dict = {k: v.detach().cpu() for k, v in decoder.state_dict().items()} if decoder is not None else None
 
                     torch.save({
@@ -262,7 +288,8 @@ def train(
                         write_model_gradients(writer, solver.model, index, label='NonQuadratic')
 
                         # Compute and plot the gradient norms from the estimator model.
-                        write_model_gradients(writer, estimator, index, label='Estimator')
+                        if estimator is not None:
+                            write_model_gradients(writer, estimator, index, label='Estimator')
 
                         if decoder is not None:
                             write_model_gradients(writer, decoder, index, label='Decoder')
@@ -340,7 +367,7 @@ def train(
 
                 # Set everything to evaluation mode.
                 model.eval()
-                if isinstance(model, PHNNString):
+                if estimator is not None:
                     estimator.eval()
                 if decoder is not None:
                     decoder.eval()
@@ -373,8 +400,9 @@ def train(
                         prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
 
                         # Get the predicted initial positions.
-                        predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
-                        predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
+                        if estimator is not None:
+                            predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
+                            predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
 
                         # Compute the different inference losses.
                         mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference).item()
@@ -383,12 +411,29 @@ def train(
                         writer.add_scalar("Validation/InferenceLoss(MAE)", mae_inference_error, index)
                         mae_t_inference_error = (mae_inference_error / (solver.dt))
                         writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, index)
-                        mse_initial_state_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
-                        writer.add_scalar("Validation/InitialStateEstimation(MSE)", mse_initial_state_error, index)
-                        mse_initial_position_error = nn.MSELoss()(predicted_initial_position[..., :train_dataset.n], ground_truth_initial_position[..., :train_dataset.n]).item()
-                        writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, index)
-                        mse_initial_momentum_error = nn.MSELoss()(predicted_initial_position[..., train_dataset.n:], ground_truth_initial_position[..., train_dataset.n:]).item()
-                        writer.add_scalar("Validation/InitialMomentumEstimation(MSE)", mse_initial_momentum_error, index)
+
+                        if estimator is not None:
+                            mse_initial_state_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
+                            writer.add_scalar("Validation/InitialStateEstimation(MSE)", mse_initial_state_error, index)
+                            mse_initial_position_error = nn.MSELoss()(predicted_initial_position[..., :train_dataset.n], ground_truth_initial_position[..., :train_dataset.n]).item()
+                            writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, index)
+                            mse_initial_momentum_error = nn.MSELoss()(predicted_initial_position[..., train_dataset.n:], ground_truth_initial_position[..., train_dataset.n:]).item()
+                            writer.add_scalar("Validation/InitialMomentumEstimation(MSE)", mse_initial_momentum_error, index)
+
+                            # Compute the energy losses at the beginning.
+                            k_energy_error, p_energy_error_1, p_energy_error_2, nonquad_error = energy_losses(
+                                model,
+                                ground_truth_initial_position[..., :train_dataset.n],
+                                ground_truth_initial_position[..., train_dataset.n:],
+                                predicted_initial_position[..., :train_dataset.n],
+                                predicted_initial_position[..., train_dataset.n:],
+                                reconstruction_loss_function
+                            )
+
+                            writer.add_scalar("Energy/PotentialInitialEnergyError", k_energy_error, index)
+                            writer.add_scalar("Energy/QuadraticInitialEnergyError1", p_energy_error_1, index)
+                            writer.add_scalar("Energy/QuadraticInitialEnergyError2", p_energy_error_2, index)
+                            writer.add_scalar("Energy/NonQuadraticInitialEnergyError", nonquad_error, index)
 
                     ###### OBSERVATION ERROR ######
                     mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
@@ -479,10 +524,15 @@ def train(
                 del ground_truth_inference, ground_truth_observation, ground_truth_initial_position, ground_truth_initial_window
                 del p_trajectory_infer, q_trajectory_infer, next_observation_infer
                 if isinstance(model, PHNNString):
-                    del prediction_inference, predicted_initial_position_q, predicted_initial_position_p, predicted_initial_position
+                    if estimator is not None:
+                        del predicted_initial_position_q, predicted_initial_position_p, predicted_initial_position
+                    del prediction_inference
                 torch.cuda.empty_cache() 
                 del model_state_dict, decoder_state_dict, estimator_state_dict
                 gc.collect()
+
+        if index > 8000:
+            break
         
 
     writer.close()

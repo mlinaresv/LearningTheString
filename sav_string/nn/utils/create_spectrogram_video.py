@@ -8,6 +8,11 @@ from pdf2image import convert_from_path
 def spectrograms_to_video(folder_path, output_path="output.mp4", fps=8):
     pattern = re.compile(r"predicted_spectrogram_step_(\d+)\.pdf")
 
+    # --- Load reference spectrogram once ---
+    reference_path = os.path.join(folder_path, "reference_spec.pdf")
+    ref_img = convert_from_path(reference_path, first_page=1, last_page=1)[0]
+    ref_img = np.array(ref_img)
+
     files = []
     for f in os.listdir(folder_path):
         match = pattern.match(f)
@@ -21,10 +26,30 @@ def spectrograms_to_video(folder_path, output_path="output.mp4", fps=8):
         for step, filename in tqdm(files):
             filepath = os.path.join(folder_path, filename)
 
-            images = convert_from_path(filepath, first_page=1, last_page=1)
-            image = np.array(images[0])  # ✅ FIX
+            pred_img = convert_from_path(filepath, first_page=1, last_page=1)[0]
+            pred_img = np.array(pred_img)
 
-            writer.append_data(image)
+            # --- Ensure same height ---
+            ref_pil = Image.fromarray(ref_img)
+            pred_pil = Image.fromarray(pred_img)
+
+            # Resize reference to match predicted height (or vice versa)
+            if ref_pil.height != pred_pil.height:
+                ref_pil = ref_pil.resize(
+                    (int(ref_pil.width * pred_pil.height / ref_pil.height),
+                     pred_pil.height)
+                )
+
+            # --- Concatenate side-by-side ---
+            combined = Image.new(
+                "RGB",
+                (ref_pil.width + pred_pil.width, pred_pil.height)
+            )
+
+            combined.paste(ref_pil, (0, 0))
+            combined.paste(pred_pil, (ref_pil.width, 0))
+
+            writer.append_data(np.array(combined))
 
     print(f"Video saved to {output_path}")
 

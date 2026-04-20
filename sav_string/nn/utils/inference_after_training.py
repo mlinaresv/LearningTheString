@@ -9,7 +9,7 @@ from sav_string.runner.utils import load_estimator, load_decoder, load_model
 from sav_string.nn.utils.inference_during_training import inference_during_training
 
 
-def infer_a_model(results_path: str, test_audio_duration: float):
+def infer_a_model(results_path: str, n_trajectories:int,test_audio_duration: float):
     
     # LOAD CONFIGURATION FILE.
     config_path = f'{results_path}/config.yaml'
@@ -63,6 +63,7 @@ def infer_a_model(results_path: str, test_audio_duration: float):
     if config["general_architecture"]["model_type"] != 'baseline':
 
         estimator = load_estimator(
+            architecture_type=config["estimator"]["architecture_type"],
             input_dim=val_dataset.temporal_window_size,
             hidden_dim=config["estimator"]["hidden_dim"],
             n=val_dataset.n,
@@ -97,6 +98,7 @@ def infer_a_model(results_path: str, test_audio_duration: float):
         model=model,
         dataset=val_dataset,
         sr=config["train"]["sampling_rate"],
+        n_trajectories=2,
         duration=test_audio_duration,
         device=device,
         estimator=estimator,
@@ -106,7 +108,7 @@ def infer_a_model(results_path: str, test_audio_duration: float):
     )
 
     # COMPARE WITH THE GROUND TRUTH VALUES.
-    ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
+    ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.max_applied_control_index + val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
     ground_truth_observation = ground_truth_inference[..., val_dataset.index]
 
     if isinstance(model, PHNNString):

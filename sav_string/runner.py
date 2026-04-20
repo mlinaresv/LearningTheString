@@ -89,7 +89,7 @@ def main(config_path='test_configuration.yaml'):
 
     ###### STATE ESTIMATOR ######
 
-    if config["general_architecture"]["model_type"] != 'baseline':
+    if config["general_architecture"]["model_type"] != 'baseline' and config["data"]["training_estimate_positions"]:
 
         estimator = load_estimator(
             architecture_type=config["estimator"]["architecture_type"],

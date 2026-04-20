@@ -176,6 +176,21 @@ class PHNNString(nn.Module):
             return (- self.h * torch.abs(self.T) * d2xq) + (self.h * torch.abs(self.E) * torch.abs(self.I) * d4xq)
     
 
+    def Ek(self, p):
+        _, M, _ = self.build_matrices()
+        return 0.5 * torch.einsum('... j, ... j -> ...', p, M * p)
+
+    def Ep_tension(self, q):
+        d2xq = self.d2xq_op(q)
+        Kp_tension = (self.h * torch.abs(self.T) * d2xq)
+        return 0.5 * torch.einsum('... j, ... j -> ...', q, Kp_tension)
+
+    def Ep_young(self, q):
+        d2xq = self.d2xq_op(q)
+        d4xq = self.d2xq_op(d2xq)
+        Kp_young =  (self.h * torch.abs(self.E) * torch.abs(self.I) * d4xq)
+        return 0.5 * torch.einsum('... j, ... j -> ...', q, Kp_young)
+
     def Enl(self, q):
 
         if self.learn_nonlinear_energy == 'cholesky':
