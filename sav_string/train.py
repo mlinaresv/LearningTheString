@@ -324,57 +324,6 @@ def train(
 
                     # Compute and plot the gradients from the non-informed model.
                     write_model_gradients(writer, solver.model, index, label='NonPhysicsModel')
-            
-
-        ###### VALIDATION ######
-        model.eval()
-        estimator.eval()
-        q_validation_running_loss = 0.0
-        p_validation_running_loss = 0.0
-
-        # Validation loop.
-        for x_batch_val, y_batch_val in val_loader:
-
-            # Define the validation groung truth (i.e. the state at time t+1)
-            state_n_1_val = y_batch_val
-            state_n_1_val = state_n_1_val.to(device)
-
-            if not val_dataset.estimate_positions:
-
-                q_val, p_val, r_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
-
-                if val_dataset.estimate_sav:
-                    r_val = torch.sqrt(model.Enl(r_val))            
-
-                # Compute the next state.
-                qnext_val, pnext_val, _ = solver.time_step(qlast=q_val, plast=p_val, rn=r_val, unow=u_val, excitation_position=exc_pos_val)
-                
-                # Compute the position and momentum losses.
-                q_loss_val = criterion(qnext_val, state_n_1_val[..., :model.N])
-                p_loss_val = criterion(pnext_val, state_n_1_val[..., model.N:])
-
-                q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
-                p_validation_running_loss += p_loss_val.item() * state_n_1_val.size(0)
-
-
-            else:
-
-                q_val, u_val, exc_pos_val = [t.to(device) for t in x_batch_val]
-
-                qnext_val, pnext_val = solver.multi_time_step(estimator=estimator, q0=q_val, unow=u_val, excitation_position=exc_pos_val, train=True, n_steps=val_dataset.n_steps)
-                preds_val = qnext_val[..., train_dataset.index]
-
-                q_loss_val = criterion(preds_val, state_n_1_val[..., -1]) 
-                assert not torch.isnan(q_loss_val)
-
-                q_validation_running_loss += q_loss_val.item() * state_n_1_val.size(0)
-
-        # Total validation loss.
-        q_validation_loss = q_validation_running_loss / len(val_loader.dataset)
-        writer.add_scalar("Validation/PositionLoss", q_validation_loss, epoch)
-        if not val_dataset.estimate_positions:
-            p_validation_loss = p_validation_running_loss / len(val_loader.dataset)
-            writer.add_scalar("Validation/MomentumLoss", p_validation_loss, epoch)
 
 
 
