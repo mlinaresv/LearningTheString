@@ -9,6 +9,7 @@ import librosa.display
 from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
+from sav_string.nn.node import BaselineFlow
 from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.phnn_string import PHNNString
@@ -20,7 +21,7 @@ from sav_string.nn.utils.dataset import H5TimeShiftDataset
 @beartype
 def inference_during_training(
         
-        model: PHNNString | MLPNextValue | ConvSequenceModel, 
+        model: PHNNString | MLPNextValue | ConvSequenceModel | BaselineFlow, 
         dataset: H5TimeShiftDataset,
         sr: int,
         n_trajectories: int,
@@ -38,7 +39,7 @@ def inference_during_training(
 
     Parameters
     ----------
-    model : PHNNString
+    model : PHNNString | MLPNextValue | ConvSequenceModel | BaselineFlow
         Neural model of the string.
     dataset : H5TimeShiftDataset
         H5TimeShiftDataset containing the ground truth information.
@@ -106,15 +107,29 @@ def inference_during_training(
 
     else:
 
-        next_observation = model.rollout(
+        if isinstance(model, BaselineFlow):
 
-            q0, 
-            u.shape[-1] - 1, 
-            mean_pos=mean_pos, 
-            std_pos=std_pos, 
-            device=device
-            
-        )
+            p_trajectory, q_trajectory = model.rollout(
+
+                q0=q0[:, 0],
+                p0=p0[:, 0],
+                u=u,
+                exc_pos=exc_pos,
+                lib=val_solver.lib
+                
+            )
+
+        else:
+
+            next_observation = model.rollout(
+
+                q0, 
+                u.shape[-1] - 1, 
+                mean_pos=mean_pos, 
+                std_pos=std_pos, 
+                device=device
+                
+            )
 
 
     if isinstance(model, PHNNString):
@@ -124,8 +139,11 @@ def inference_during_training(
             warnings.warn("The position trajectory has invalid numbers!", RuntimeWarning)
 
     else:
-        if torch.isnan(next_observation).any():
-            warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning) 
+        if isinstance(model, BaselineFlow):
+            pass
+        else:
+            if torch.isnan(next_observation).any():
+                warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning) 
 
     del q0, p0, u, exc_pos           
 
@@ -307,7 +325,7 @@ def write_stability_conditions(
 def write_model_gradients(
         
         writer: SummaryWriter,
-        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel | TransformerStateEstimator | None,
+        model: PHNNString | StateEstimator | MLPNextValue | StateDecoder | ConvSequenceModel | TransformerStateEstimator | BaselineFlow | None,
         index: int,
         label: str
 

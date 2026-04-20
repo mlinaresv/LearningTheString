@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from sav_string.nn.node import BaselineFlow
 
 
 class MLPNextValue(nn.Module):
@@ -172,7 +173,8 @@ def load_baseline_model(
 ):
 
     # Load the model hyperparameters.
-    model_hyperparams = hyperparameters[architecture]
+    if architecture != 'flow_map':
+        model_hyperparams = hyperparameters[architecture]
 
     if architecture == 'mlp':
 
@@ -190,5 +192,9 @@ def load_baseline_model(
             n_layers=model_hyperparams["n_layers"],
             kernel_size=model_hyperparams["kernel_size"]
         )
+
+    elif architecture == 'flow_map':
+
+        model = BaselineFlow()
 
     return model

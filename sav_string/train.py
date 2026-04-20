@@ -4,16 +4,20 @@ import numpy as np
 import torch.nn as nn
 from beartype import beartype
 import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.utils.training import curriculum_loss, reconstruction_loss, latent_estimation_consistency_loss, next_momentum_loss, energy_losses
+from sav_string.nn.node import BaselineFlow
 from sav_string.nn.phnn_string import PHNNString
+from torch.utils.tensorboard import SummaryWriter
+from librosa.util.exceptions import ParameterError
+from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
-from sav_string.utils.string import listen_to_a_trajectory
-from librosa.util.exceptions import ParameterError
+from sav_string.nn.utils.training import (reconstruction_loss, 
+                                          latent_estimation_consistency_loss, 
+                                          next_momentum_loss, 
+                                          energy_losses)
 from sav_string.nn.utils.inference_during_training import (inference_during_training, 
                                                            make_spectrogram_image, 
                                                            compute_non_linear_energy_error, 
@@ -35,7 +39,7 @@ def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_si
 def train( 
         
         sr: int,
-        model: PHNNString | MLPNextValue | ConvSequenceModel,
+        model: PHNNString | MLPNextValue | ConvSequenceModel | BaselineFlow,
         solver,
         estimator: StateEstimator | TransformerStateEstimator | None,
         decoder: StateDecoder | None,
@@ -50,7 +54,6 @@ def train(
         epochs: int,
         max_steps: int,  
         device: str,
-        log_each_n_epochs: int,
         log_each_n_updates: int,
         infer_each_n_updates: int,
         test_audio_duration: float,
@@ -65,9 +68,12 @@ def train(
     writer = SummaryWriter(log_dir=log_dir)
 
     # Define whether the reference information has been saved.
-    saved_reference = False
+    saved_reference, stop = False, False
 
     for epoch in range(1, epochs + 1):
+
+        if stop:
+            break
 
         # Prepare setting for training.
         model.train()
@@ -87,6 +93,9 @@ def train(
         # ###### TRAINING ######
         for i, (x_batch, y_batch) in enumerate(train_loader):
 
+            if stop:
+                break
+
             ###### FORWARD PASS ######
 
             # Define the ground truth (i.e. the state at time t+1).
@@ -100,10 +109,16 @@ def train(
 
                 q, p, r, u, exc_pos = [t.to(device, non_blocking=True) for t in x_batch]
 
-                if train_dataset.estimate_sav:
-                    r = torch.sqrt(model.Enl(r) + 1e-14)
+                if isinstance(model, PHNNString):
 
-                qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u[..., 0], excitation_position=exc_pos, train=True)
+                    if train_dataset.estimate_sav:
+                        r = torch.sqrt(model.Enl(r) + 1e-14)
+
+                    qnext, pnext, _ = solver.time_step(qlast=q, plast=p, rn=r, unow=u[..., 0], excitation_position=exc_pos, train=True)
+                
+                else:
+                    qnext, pnext = model.forward(q, p, u, exc_pos)
+
                 preds = torch.concat((qnext, pnext), axis=-1)
 
                 observation_loss = baseline_loss_function(preds, state_n_1[:, 0])
@@ -244,72 +259,71 @@ def train(
             training_running_loss += loss.item() * state_n_1.size(0)
         
             ###### LOGGING ######
-            if epoch % log_each_n_epochs == 0:
 
-                if index % log_each_n_updates == 0:
+            if index % log_each_n_updates == 0:
 
-                    ###### LOSS LOGGING ######
-                    writer.add_scalar("Train/Loss", observation_loss, index)
-                    if reconstruction_loss_actual_state is not None:
-                        writer.add_scalar("Train/ReconstructionLoss_{t}", reconstruction_loss_actual_state, index)
-                    if reconstruction_loss_next_state is not None:
-                        writer.add_scalar("Train/ReconstructionLoss_{t+1}", reconstruction_loss_next_state, index)
-                    if latent_estimation_loss is not None: 
-                        writer.add_scalar("Train/ConsistencyLoss", latent_estimation_loss, index)
-                    if momentum_loss is not None:
-                        writer.add_scalar("Train/MomentumLoss", momentum_loss, index)
-                    if next_momentum_error is not None:
-                        writer.add_scalar("Train/NextMomentumLoss", next_momentum_error, index)
-                    if sobolev_1_loss is not None:
-                        writer.add_scalar("Train/Sobolev1Loss", sobolev_1_loss, index)
-                    if sobolev_2_loss is not None:
-                        writer.add_scalar("Train/Sobolev2Loss", sobolev_2_loss, index)
+                ###### LOSS LOGGING ######
+                writer.add_scalar("Train/Loss", observation_loss, index)
+                if reconstruction_loss_actual_state is not None:
+                    writer.add_scalar("Train/ReconstructionLoss_{t}", reconstruction_loss_actual_state, index)
+                if reconstruction_loss_next_state is not None:
+                    writer.add_scalar("Train/ReconstructionLoss_{t+1}", reconstruction_loss_next_state, index)
+                if latent_estimation_loss is not None: 
+                    writer.add_scalar("Train/ConsistencyLoss", latent_estimation_loss, index)
+                if momentum_loss is not None:
+                    writer.add_scalar("Train/MomentumLoss", momentum_loss, index)
+                if next_momentum_error is not None:
+                    writer.add_scalar("Train/NextMomentumLoss", next_momentum_error, index)
+                if sobolev_1_loss is not None:
+                    writer.add_scalar("Train/Sobolev1Loss", sobolev_1_loss, index)
+                if sobolev_2_loss is not None:
+                    writer.add_scalar("Train/Sobolev2Loss", sobolev_2_loss, index)
 
-                    ###### MODEL CHECKPOINT ######
-                    model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-                    estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if estimator is not None else None
-                    decoder_state_dict = {k: v.detach().cpu() for k, v in decoder.state_dict().items()} if decoder is not None else None
+                ###### MODEL CHECKPOINT ######
+                model_state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+                estimator_state_dict = {k: v.detach().cpu() for k, v in estimator.state_dict().items()} if estimator is not None else None
+                decoder_state_dict = {k: v.detach().cpu() for k, v in decoder.state_dict().items()} if decoder is not None else None
 
-                    torch.save({
-                        "epoch": epoch,
-                        "update": index,
-                        "model_state_dict": model_state_dict,
-                        "estimator_state_dict": estimator_state_dict,
-                        "decoder_state_dict": decoder_state_dict,
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "loss": loss.item(),
+                torch.save({
+                    "epoch": epoch,
+                    "update": index,
+                    "model_state_dict": model_state_dict,
+                    "estimator_state_dict": estimator_state_dict,
+                    "decoder_state_dict": decoder_state_dict,
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "loss": loss.item(),
 
-                    }, f"./{log_dir}/checkpoint.pth")
+                }, f"./{log_dir}/checkpoint.pth")
 
-                    
-                    ###### MODEL GRADIENTS AND PARAMETERS ######
-                    if isinstance(model, PHNNString):
+                
+                ###### MODEL GRADIENTS AND PARAMETERS ######
+                if isinstance(model, PHNNString):
 
-                        # Compute and plot the gradient norms from the non-quadratic model.
-                        write_model_gradients(writer, solver.model, index, label='NonQuadratic')
+                    # Compute and plot the gradient norms from the non-quadratic model.
+                    write_model_gradients(writer, solver.model, index, label='NonQuadratic')
 
-                        # Compute and plot the gradient norms from the estimator model.
-                        if estimator is not None:
-                            write_model_gradients(writer, estimator, index, label='Estimator')
+                    # Compute and plot the gradient norms from the estimator model.
+                    if estimator is not None:
+                        write_model_gradients(writer, estimator, index, label='Estimator')
 
-                        if decoder is not None:
-                            write_model_gradients(writer, decoder, index, label='Decoder')
+                    if decoder is not None:
+                        write_model_gradients(writer, decoder, index, label='Decoder')
 
-                        # Write the estimated constant parameters of the model.
-                        write_constant_parameters_errors(writer, model, index)
+                    # Write the estimated constant parameters of the model.
+                    write_constant_parameters_errors(writer, model, index)
 
-                        # Write in Tensorboard the stability conditions.
-                        write_stability_conditions(writer, model, index, solver.sr) 
+                    # Write in Tensorboard the stability conditions.
+                    write_stability_conditions(writer, model, index, solver.sr) 
 
-                        # If the nonquadratic energy kernel is learned.
-                        if model.learn_nonlinear_energy_filter:
-                            writer.add_scalar("Inference/FilterWeight1", model.Enl_.diff.conv.weight.data[..., 0].item(), index)
-                            writer.add_scalar("Inference/FilterWeight2", model.Enl_.diff.conv.weight.data[..., 1].item(), index)
+                    # If the nonquadratic energy kernel is learned.
+                    if model.learn_nonlinear_energy_filter:
+                        writer.add_scalar("Inference/FilterWeight1", model.Enl_.diff.conv.weight.data[..., 0].item(), index)
+                        writer.add_scalar("Inference/FilterWeight2", model.Enl_.diff.conv.weight.data[..., 1].item(), index)
 
-                    else:
+                else:
 
-                        # Compute and plot the gradients from the non-informed model.
-                        write_model_gradients(writer, solver.model, index, label='NonPhysicsModel')
+                    # Compute and plot the gradients from the non-informed model.
+                    write_model_gradients(writer, solver.model, index, label='NonPhysicsModel')
             
 
         ###### VALIDATION ######
@@ -373,7 +387,9 @@ def train(
                 if decoder is not None:
                     decoder.eval()
 
+
                 # ###### INFERENCE ######
+                mse_observation_error = None
                 with torch.inference_mode():
 
                     ###### GROUND TRUTH INFORMATION ######
@@ -396,14 +412,9 @@ def train(
                         std_pos=train_dataset.std_pos
                     )
 
-                    if isinstance(model, PHNNString):
+                    if type(model) in [PHNNString, BaselineFlow]:
 
                         prediction_inference = torch.concat((q_trajectory_infer, p_trajectory_infer), axis=-1)
-
-                        # Get the predicted initial positions.
-                        if estimator is not None:
-                            predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
-                            predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
 
                         # Compute the different inference losses.
                         mse_inference_error = nn.MSELoss()(prediction_inference, ground_truth_inference).item()
@@ -413,11 +424,18 @@ def train(
                         mae_t_inference_error = (mae_inference_error / (solver.dt))
                         writer.add_scalar("Validation/InferenceLoss(MAE/t)", mae_t_inference_error, index)
 
+
+                        # Get the predicted initial positions.
                         if estimator is not None:
+
+                            predicted_initial_position_q, predicted_initial_position_p = estimator(ground_truth_initial_window.to(device))
+                            predicted_initial_position = torch.concat((predicted_initial_position_q, predicted_initial_position_p), axis=-1).detach().cpu()
                             mse_initial_state_error = nn.MSELoss()(predicted_initial_position, ground_truth_initial_position).item()
                             writer.add_scalar("Validation/InitialStateEstimation(MSE)", mse_initial_state_error, index)
+
                             mse_initial_position_error = nn.MSELoss()(predicted_initial_position[..., :train_dataset.n], ground_truth_initial_position[..., :train_dataset.n]).item()
                             writer.add_scalar("Validation/InitialPositionEstimation(MSE)", mse_initial_position_error, index)
+
                             mse_initial_momentum_error = nn.MSELoss()(predicted_initial_position[..., train_dataset.n:], ground_truth_initial_position[..., train_dataset.n:]).item()
                             writer.add_scalar("Validation/InitialMomentumEstimation(MSE)", mse_initial_momentum_error, index)
 
@@ -437,11 +455,12 @@ def train(
                             writer.add_scalar("Energy/NonQuadraticInitialEnergyError", nonquad_error, index)
 
                     ###### OBSERVATION ERROR ######
-                    mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
-                    writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error, index)
+                    if next_observation_infer is not None:
+                        mse_observation_error = nn.MSELoss()(next_observation_infer, ground_truth_observation).item()  
+                        writer.add_scalar("Validation/ObservationError(MSE)", mse_observation_error, index)
 
                     # Define the inference error metric to keep the model and to save inside the checkpoints.
-                    inference_error = mse_inference_error if isinstance(model, PHNNString) else mse_observation_error
+                    inference_error = mse_inference_error if type(model) in [PHNNString, BaselineFlow] else mse_observation_error
                     inference_error = inference_error if not np.isnan(inference_error) else torch.tensor([float('inf')])
 
                     # Compute and write the nonquadratic energy error with respect to the ground truth function.
@@ -463,7 +482,7 @@ def train(
 
 
                     ###### LISTEN TO THE MODEL PREDICTION ######
-                    information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else next_observation_infer[0].numpy()
+                    information_listened = p_trajectory_infer[0].numpy() if ((decoder is None) and (type(model) in [PHNNString, BaselineFlow])) else next_observation_infer[0].numpy()
                     
                     _, _, tensorboard_audio_pred = listen_to_a_trajectory(
                         p_trajectory=information_listened,
@@ -481,7 +500,7 @@ def train(
 
 
                     ###### SPECTROGRAM CREATION ######
-                    pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString)))  else information_listened
+                    pmid_pred = information_listened[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (type(model) in [PHNNString, BaselineFlow]))  else information_listened
 
                     # Prediction spectrogram.
                     try:
@@ -492,8 +511,8 @@ def train(
                         pass
 
                     # Error spectrogram.
-                    p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (isinstance(model, PHNNString))) else ground_truth_observation[0].numpy()
-                    pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (isinstance(model, PHNNString))) else p_ref
+                    p_ref = ground_truth_inference[0, :, val_dataset.n: val_dataset.n * 2].numpy() if ((decoder is None) and (type(model) in [PHNNString, BaselineFlow])) else ground_truth_observation[0].numpy()
+                    pmid_ref = p_ref[:, int((np.sqrt(2) * p_trajectory_infer.shape[-1]) // 2)] if ((decoder is None) and (type(model) in [PHNNString, BaselineFlow])) else p_ref
                     error = pmid_pred - pmid_ref
                     try:
                         spec_error = make_spectrogram_image(error, sr)          
@@ -532,8 +551,8 @@ def train(
                 del model_state_dict, decoder_state_dict, estimator_state_dict
                 gc.collect()
 
-        if index > 8000:
-            break
+            if index >= max_steps:
+                stop = True
         
 
     writer.close()

@@ -46,7 +46,6 @@ def main(config: dict, n_traj: int, log_dir: str, device: str):
     print('--> Defining the model...')
 
     model = load_model(
-        model_type=config["general_architecture"]["model_type"],
         baseline_architecture=config["general_architecture"]["baseline_architecture"],
         temporal_window_size=train_dataset.temporal_window_size,
         baseline_hyperparameters=config["general_architecture"]["hyperparameters"],
@@ -58,7 +57,7 @@ def main(config: dict, n_traj: int, log_dir: str, device: str):
 
     ###### STATE ESTIMATOR ######
 
-    if config["general_architecture"]["model_type"] != 'baseline' and config["data"]["training_estimate_positions"]:
+    if config["data"]["training_estimate_positions"]:
 
         estimator = load_estimator(
             architecture_type=config["estimator"]["architecture_type"],
@@ -129,7 +128,6 @@ def main(config: dict, n_traj: int, log_dir: str, device: str):
         epochs=config["train"]["epochs"],
         max_steps=config["train"]["max_steps"],
         device=device,
-        log_each_n_epochs=config["train"]["log_each_n_epochs"],
         log_each_n_updates=config["train"]["log_each_n_updates"],
         infer_each_n_updates=config["train"]["infer_each_n_updates"],
         log_dir=log_dir,

@@ -96,7 +96,6 @@ def load_decoder(
 
 def load_model(
 
-    model_type: str,
     baseline_architecture: str,
     temporal_window_size: int,
     baseline_hyperparameters: dict,
@@ -106,15 +105,7 @@ def load_model(
 
 ):
 
-    if model_type == 'baseline':
-
-        model = load_baseline_model(
-            architecture=baseline_architecture,
-            input_dim=temporal_window_size,
-            hyperparameters=baseline_hyperparameters
-        )
-
-    elif model_type == 'phnn_sav':
+    if baseline_architecture == 'phnn_sav':
 
         model = PHNNString(
 
@@ -132,6 +123,15 @@ def load_model(
             true_string_parameters=phnn_string_hyperparameters["true_string_parameters"]
 
         )
+
+    else:
+
+        model = load_baseline_model(
+            architecture=baseline_architecture,
+            input_dim=temporal_window_size,
+            hyperparameters=baseline_hyperparameters
+        )
+        
 
     print(f'--> Model with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters loaded!')
 
