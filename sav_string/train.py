@@ -5,7 +5,7 @@ import torch.nn as nn
 from beartype import beartype
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
-from sav_string.nn.node import BaselineFlow
+from sav_string.nn.baseline import BaselineFlow
 from sav_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
 from librosa.util.exceptions import ParameterError
@@ -14,10 +14,10 @@ from sav_string.utils.string import listen_to_a_trajectory
 from sav_string.nn.transformer import TransformerStateEstimator
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
-from sav_string.nn.utils.training import (reconstruction_loss, 
-                                          latent_estimation_consistency_loss, 
-                                          next_momentum_loss, 
-                                          energy_losses)
+from sav_string.utils.losses import (reconstruction_loss, 
+                                     latent_estimation_consistency_loss, 
+                                     next_momentum_loss, 
+                                     energy_losses)
 from sav_string.nn.utils.inference_during_training import (inference_during_training, 
                                                            make_spectrogram_image, 
                                                            compute_non_linear_energy_error, 
@@ -338,7 +338,7 @@ def train(
 
 
                 # ###### INFERENCE ######
-                mse_observation_error = None
+                mse_observation_error = torch.tensor([float('inf')])
                 with torch.inference_mode():
 
                     ###### GROUND TRUTH INFORMATION ######

@@ -1,8 +1,17 @@
-import os
+from beartype import beartype
 import matplotlib.pyplot as plt
 from tensorboard.backend.event_processing import event_accumulator
 
-def plot_tensorboard_scalars(log_dirs, tags=None, labels=None, colors=None):
+
+@beartype
+def plot_tensorboard_scalars(
+        
+        log_dirs: list[str], 
+        tags: list[str] | None = None, 
+        labels: list[str] | None = None, 
+        colors: list[str] | None = None
+
+    ):
     """
     Plot scalar data from multiple TensorBoard runs.
 
@@ -70,31 +79,3 @@ def plot_tensorboard_scalars(log_dirs, tags=None, labels=None, colors=None):
     filename = "_".join([t.replace('/', '_') for t in tags])
     plt.savefig(f"{filename}.pdf")
     plt.show()
-
-
-if __name__ == '__main__':
-
-    log_dirs = [
-        '/u/anasynth/linares/LearningTheString/sav_string/runs/20260403_082938',
-        '/u/anasynth/linares/LearningTheString/sav_string/runs/20260403_105543',
-        '/u/anasynth/linares/LearningTheString/sav_string/runs/20260408_095659',
-        '/u/anasynth/linares/LearningTheString/sav_string/runs/20260407_122744',
-        #'/u/anasynth/linares/LearningTheString/sav_string/runs/20260407_131319'
-    ]
-    tags = [
-        'Gradients/EstimatorModel',
-        'Gradients/DecoderModel',
-        #'Gradients/NonPhysicsModelModel',
-        'Train/Loss',
-        'Validation/InferenceLoss(MSE)',
-        'Validation/ObservationError(MSE)'
-    ]
-    labels = [
-        'encodec-mse',
-        'encodec-mae',
-        'encodec-mse-reconstruction-loss',
-        'mlp_800k',
-        #'mlp_290k'
-    ]
-
-    plot_tensorboard_scalars(log_dirs, tags, labels)

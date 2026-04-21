@@ -1,4 +1,3 @@
-import matplotlib.figure
 import torch
 import librosa
 import warnings
@@ -6,16 +5,16 @@ import matplotlib
 import numpy as np
 import torch.nn as nn
 import librosa.display
+import matplotlib.figure
 from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.sav_solver import SAVSolver
-from sav_string.nn.node import BaselineFlow
-from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
 from sav_string.nn.phnn_string import PHNNString
-from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
 from torch.utils.tensorboard import SummaryWriter
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
+from sav_string.nn.transformer import TransformerStateEstimator
+from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
+from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow
 
 
 @beartype

@@ -1,5 +1,3 @@
-import sys
-sys.path.append('/u/anasynth/linares/LearningTheString')
 import h5py
 import numpy as np
 from tqdm import tqdm

@@ -7,7 +7,8 @@ import numpy as np
 from datetime import datetime
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.runner.run import main
-from sav_string.nn.utils import manage_gpus as mgp
+from sav_string.utils import manage_gpus as mgp
+from sav_string.utils.loader import load_configuration
 
 
 
@@ -20,8 +21,7 @@ def set_seed(seed):
 def experimenter(config_path='test_configuration.yaml'):
 
     # LOAD CONFIGURATION FILE.
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+    config = load_configuration(config_path)
 
     # SET SEED.
     set_seed(config["seed"])

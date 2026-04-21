@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from sav_string.nn.node import BaselineFlow
 
 
 class MLPNextValue(nn.Module):
@@ -166,35 +165,65 @@ class ConvSequenceModel(nn.Module):
 
 
 
-def load_baseline_model(
-    architecture: str,
-    input_dim: int,
-    hyperparameters: dict
-):
+class BaselineFlow(nn.Module):
+    def __init__(
+            
+            self, 
+            input_dim=406, 
+            hidden1=64, 
+            hidden2=32, 
+            output_dim=404
+            
+        ):
 
-    # Load the model hyperparameters.
-    if architecture != 'flow_map':
-        model_hyperparams = hyperparameters[architecture]
+        super().__init__()
 
-    if architecture == 'mlp':
+        self.n_states = output_dim // 2
 
-        model = MLPNextValue(
-            input_dim=input_dim,
-            hidden_sizes=model_hyperparams["hidden_sizes"]
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden1),
+            nn.LeakyReLU(),
+
+            nn.Linear(hidden1, hidden2),
+            nn.LeakyReLU(),
+
+            nn.Linear(hidden2, output_dim)
         )
 
-    elif architecture == 'cnn':
 
-        model = ConvSequenceModel(
-            input_dim=input_dim,
-            hidden_dim=model_hyperparams["hidden_size"],
-            output_dim=input_dim,
-            n_layers=model_hyperparams["n_layers"],
-            kernel_size=model_hyperparams["kernel_size"]
-        )
+    def forward(self, q, p, u, exc_pos):
+        """
+        x: (batch_size, 406)
+        returns: (batch_size, 404) -> next state (p_next, q_next flattened)
+        """
 
-    elif architecture == 'flow_map':
+        x = torch.cat((q, p, u, exc_pos), dim=-1)
+        next_x = self.net(x)
 
-        model = BaselineFlow()
+        return next_x[..., :self.n_states], next_x[..., self.n_states:]
+    
 
-    return model
+    def rollout(self, q0, p0, u, exc_pos, lib):
+        
+        time_steps = u.shape[-1] - 1
+        p_trajectory, q_trajectory = lib.zeros((*p0.shape[:-1], time_steps + 1, p0.shape[-1])), lib.zeros((*q0.shape[:-1], time_steps + 1, q0.shape[-1]))
+
+        # State initialization.
+        qlast, plast = q0, p0
+        p_trajectory[..., 0, :] = plast
+        q_trajectory[..., 0, :] = qlast
+
+        # Main loop.
+        for i in range(time_steps):
+
+            u_t = u[:, i].unsqueeze(-1)
+            qnext, pnext = self.forward(qlast, plast, u_t, exc_pos.to(qlast.device))
+            qlast = qnext
+            plast = pnext
+
+            # Append the new generated states to the final trajectory.
+            p_trajectory[..., i + 1, :] = pnext
+            q_trajectory[..., i + 1, :] = qnext
+
+        return p_trajectory, q_trajectory
+

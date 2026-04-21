@@ -1,104 +1,74 @@
-import sys
-sys.path.append('/u/anasynth/linares/LearningTheString')
-import yaml
 import torch
+from beartype import beartype
 import matplotlib.pyplot as plt
+from sav_string.nn.baseline import BaselineFlow
 from sav_string.nn.phnn_string import PHNNString
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.runner.utils import load_estimator, load_decoder, load_model
+from sav_string.utils.string import listen_to_a_trajectory
 from sav_string.nn.utils.inference_during_training import inference_during_training
+from sav_string.utils.loader import load_configuration, load_datasets, load_learnable_objects
 
 
-def infer_a_model(results_path: str, n_trajectories:int,test_audio_duration: float):
+@beartype
+def infer_a_model(
+        
+        results_path: str,
+        n_trajectories_train: int, 
+        n_trajectories_infer: int,
+        initialization_id: int,
+        test_audio_duration: float,
+        infer_best_model: bool
+        
+    ):
+
+    """
+    Takes a results folder and infers a given number of trajectories for one of the model initializations 
+    that has been trained using a specific number of trajectories. 
+
+    Parameters
+    ----------
+    results_path : str
+        Folder where the training results are saved inside the /runs directory.
+    n_trajectories_train : int
+        Number of training trajectories used to train the model.
+    n_trajectories_infer : int
+        Number of trajectories inferred from the validation dataset.
+    initialization_id : int
+        The considered model initialization.
+    test_audio_duration : float
+        The duration of the simulated audio (sampled at 88.2kHz).
+    infer_best_model : bool
+        If True, the best_model.pth is loaded.
+        If False, the last model from the training is loaded (checkpoint.pth).
+    """
     
-    # LOAD CONFIGURATION FILE.
-    config_path = f'{results_path}/config.yaml'
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-
+    # Load configuration file, set the device and create the datasets.
+    config = load_configuration(f'{results_path}/config.yaml')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    train_dataset, val_dataset = load_datasets(config, n_trajectories_train)
 
-    train_dataset = H5TimeShiftDataset(
+    # Decide which type of checkpoint we load.
+    if not infer_best_model:
+        checkpoint_file = f'{results_path}/{n_trajectories_train}_traj/{initialization_id}/checkpoint.pth'
+    else:
+        checkpoint_file = f'{results_path}/{n_trajectories_train}_traj/{initialization_id}/best_model.pth'
 
-        h5path=config["data"]["training_dataset_path"], 
-        number_of_trajectories=config["data"]["training_number_of_trajectories"],
-        lazy_access=config["data"]["training_lazy_access"],
-        estimate_sav=config["data"]["training_estimate_sav"],
-        estimate_positions=config["data"]["training_estimate_positions"],
-        n_steps=config["data"]["training_n_steps"],
-        temporal_window_size=config["data"]["training_temporal_window_size"],
-        normalize=config["data"]["training_normalize"]
-        
-    )
 
-    # Load the validation dataset.
-    val_dataset = H5TimeShiftDataset(
-
-        h5path=config["data"]["validation_dataset_path"], 
-        number_of_trajectories=config["data"]["validation_number_of_trajectories"],
-        lazy_access=config["data"]["validation_lazy_access"],
-        estimate_sav=config["data"]["validation_estimate_sav"],
-        estimate_positions=config["data"]["validation_estimate_positions"],
-        n_steps=config["data"]["validation_n_steps"],
-        temporal_window_size=config["data"]["validation_temporal_window_size"],
-        ignore_control=True
-        
-    )
-
-    ###### PHNNString MODEL ######
-    print('--> Defining the model...')
-
-    model = load_model(
-        model_type=config["general_architecture"]["model_type"],
-        baseline_architecture=config["general_architecture"]["baseline_architecture"],
-        temporal_window_size=val_dataset.temporal_window_size,
-        baseline_hyperparameters=config["general_architecture"]["hyperparameters"],
-        phnn_string_hyperparameters=config["model"],
+    # Load the model, estimator and decoder.
+    model, estimator, decoder = load_learnable_objects(
+        config=config,
+        dataset=val_dataset,
+        device=device,
         load_model_dictionary=True,
-        checkpoint_file=f'{results_path}/checkpoint.pth'
-    ).to(device)
+        checkpoint_file=checkpoint_file
+    )
 
-    ###### STATE ESTIMATOR ######
-
-    if config["general_architecture"]["model_type"] != 'baseline':
-
-        estimator = load_estimator(
-            architecture_type=config["estimator"]["architecture_type"],
-            input_dim=val_dataset.temporal_window_size,
-            hidden_dim=config["estimator"]["hidden_dim"],
-            n=val_dataset.n,
-            index=val_dataset.index,
-            positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"],
-            load_estimator_dictionary=True,
-            checkpoint_file=f'{results_path}/checkpoint.pth'
-        ).to(device)
-
-    else:
-
-        estimator = None
-
-    ###### STATE DECODER ######
-    if config["general_architecture"]["use_decoder"] and config["general_architecture"]["model_type"] != 'baseline':
-        
-        decoder = load_decoder(
-            input_dim=2 * val_dataset.n,
-            hidden_dim=config["decoder"]["hidden_dim"],
-            output_dim=val_dataset.temporal_window_size,
-            n=val_dataset.n,
-            load_decoder_dictionary=True,
-            checkpoint_file=f'{results_path}/checkpoint.pth'
-        ).to(device)
-
-    else:
-
-        decoder = None
 
     # DEFINE THE NUMERICAL SOLVER.
     p_trajectory, q_trajectory, next_observation = inference_during_training(
         model=model,
         dataset=val_dataset,
         sr=config["train"]["sampling_rate"],
-        n_trajectories=2,
+        n_trajectories=n_trajectories_infer,
         duration=test_audio_duration,
         device=device,
         estimator=estimator,
@@ -107,11 +77,26 @@ def infer_a_model(results_path: str, n_trajectories:int,test_audio_duration: flo
         std_pos=train_dataset.std_pos
     )
 
-    # COMPARE WITH THE GROUND TRUTH VALUES.
-    ground_truth_inference = torch.from_numpy(val_dataset.file['states'][:, val_dataset.max_applied_control_index + val_dataset.temporal_window_size - 1:, : val_dataset.n * 2])
-    ground_truth_observation = ground_truth_inference[..., val_dataset.index]
+    
+    return q_trajectory, p_trajectory, next_observation
 
-    if isinstance(model, PHNNString):
+
+
+
+def compute_inference_errors(
+        q_trajectory,
+        p_trajectory,
+        next_observation,
+        dataset,
+        model,
+):
+
+
+    # COMPARE WITH THE GROUND TRUTH VALUES.
+    ground_truth_inference = torch.from_numpy(dataset.file['states'][:, dataset.max_applied_control_index + dataset.temporal_window_size - 1:, : dataset.n * 2])
+    ground_truth_observation = ground_truth_inference[..., dataset.index]
+
+    if isinstance(model, PHNNString) or isinstance(model, BaselineFlow):
 
         prediction_inference = torch.concat((q_trajectory, p_trajectory), axis=-1)
 
@@ -120,9 +105,14 @@ def infer_a_model(results_path: str, n_trajectories:int,test_audio_duration: flo
         mae_inference_error = torch.abs(prediction_inference, ground_truth_inference)
 
     ###### OBSERVATION ERROR ######
-    mse_observation_error = (next_observation - ground_truth_observation)**2
+    if not isinstance(model, BaselineFlow):
+        mse_observation_error = (next_observation - ground_truth_observation)**2
+    else:
+        mse_observation_error = None
 
     # DEFINE THE PLOT AND SHOW THE INFORMATION
+    # --> If the model is PHNNString, we plot the state and the observation error.
+    # --> If the model is not PHNNString, we only plot either the state or the observation error.
     n_plots = 3 if isinstance(model, PHNNString) else 1
     fig, axes =  plt.subplots(n_plots, 1, figsize=(6, 4 * n_plots))
 
@@ -131,20 +121,70 @@ def infer_a_model(results_path: str, n_trajectories:int,test_audio_duration: flo
         axes[1].plot(torch.cumsum(mae_inference_error.mean(dim=(0,2)), dim=0))
         axes[2].plot(torch.cumsum(mse_observation_error.mean(dim=0), dim=0))
     else:
-        axes.plot(torch.cumsum(mse_observation_error.mean(dim=0), dim=0))
+        if not isinstance(model, BaselineFlow):
+            axes.plot(torch.cumsum(mse_observation_error.mean(dim=0), dim=0))
+        else:
+            axes.plot(torch.cumsum(mse_inference_error.mean(dim=0), dim=0))
+
         axes.set_yscale('log')
         axes.set_ylim(1e-6, 1e10)
         axes.set_xlim(0, 180000)
         axes.set_title(f'Cumulative observation error (MSE: {mse_observation_error.mean():.2e})')
-
+    
     fig.savefig('inference_errors_over_time.pdf')
 
+    return mse_inference_error, mse_observation_error  
 
-if __name__ == '__main__':
 
-    infer_a_model(
-        results_path='/u/anasynth/linares/LearningTheString/sav_string/runs/20260409_174755',
-        test_audio_duration=0.1
+
+@beartype
+def listen_to_a_model(
+
+    
+        results_path: str, 
+        n_trajectories_train: int,
+        initialization_id: int,
+        test_audio_duration: float,
+        listen_best_model: bool 
+        
+    ) -> tuple:
+
+    """
+    Gets a .yaml configuration file from a PHNNString model and infers a trajectory for a given duration and sampling rate.
+
+    Parameters
+    ----------
+    directory : str
+        Directory where the configuration file is saved.
+    state_dict_type : str
+        The type of state dictionary to load into the model for inference. 
+        It only handles "best_model" or "checkpoint" values.
+    duration : int | float
+        Duration of the generated signal.
+    sr : int
+        Sampling rate of the generated signal.
+
+    Returns
+    -------
+    tuple
+        (sr, scaled_audio)
+    """
+
+    _, p_trajectory, _ = infer_a_model(
+        results_path=results_path,
+        n_trajectories_train=n_trajectories_train,
+        n_trajectories_infer=1,
+        initialization_id=initialization_id,
+        test_audio_duration=test_audio_duration,
+        infer_best_model=listen_best_model
     )
 
+    # Listen to the generated trajectory.
+    sr, scaled_audio = listen_to_a_trajectory(
+        p_trajectory=p_trajectory.numpy(),
+        sr=sr,
+        filename=f'{results_path}/test/what_does_the_model_say'
+    )
 
+    # Returns the signal sampling rate and the scaled audio.
+    return sr, scaled_audio

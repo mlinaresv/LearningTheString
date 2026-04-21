@@ -1,10 +1,10 @@
 import sys
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.train import train
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.sav_solver import SAVSolver
-from sav_string.runner.utils import load_estimator, load_decoder, load_model, load_optimizer
-from sav_string.nn.utils.training import define_loss_function
+from sav_string.utils.loader import load_optimizer
+from sav_string.utils.losses import define_loss_function
+from sav_string.utils.loader import load_datasets, load_learnable_objects
 
 
 
@@ -14,82 +14,17 @@ def main(config: dict, n_traj: int, log_dir: str, device: str):
     # DEFINE THE DATASETS AND DATALOADERS.
     print('--> Building the training and validation dataset...')
 
-    train_dataset = H5TimeShiftDataset(
+    train_dataset, val_dataset = load_datasets(config, n_traj)
 
-        h5path=config["data"]["training_dataset_path"], 
-        number_of_trajectories=n_traj,
-        lazy_access=config["data"]["training_lazy_access"],
-        estimate_sav=config["data"]["training_estimate_sav"],
-        estimate_positions=config["data"]["training_estimate_positions"],
-        n_steps=config["data"]["training_n_steps"],
-        temporal_window_size=config["data"]["training_temporal_window_size"],
-        normalize=config["data"]["training_normalize"],
-        ignore_control=config["data"]["training_ignore_control"]
-        
+    
+    # DEFINE THE LEARNABLE OBJECTS.
+    model, estimator, decoder = load_learnable_objects(
+        config=config,
+        dataset=train_dataset,
+        device=device,
+        load_model_dictionary=config["checkpoint"]["load_dictionary"],
+        checkpoint_file=config["checkpoint"]["checkpoint_file"]
     )
-
-    val_dataset = H5TimeShiftDataset(
-
-        h5path=config["data"]["validation_dataset_path"], 
-        number_of_trajectories=config["data"]["validation_number_of_trajectories"],
-        lazy_access=config["data"]["validation_lazy_access"],
-        estimate_sav=config["data"]["validation_estimate_sav"],
-        estimate_positions=config["data"]["validation_estimate_positions"],
-        n_steps=config["data"]["validation_n_steps"],
-        temporal_window_size=config["data"]["validation_temporal_window_size"],
-        ignore_control=config["data"]["validation_ignore_control"]
-        
-    )
-
-
-    ###### PHNNString MODEL ######
-    print('--> Defining the model...')
-
-    model = load_model(
-        baseline_architecture=config["general_architecture"]["baseline_architecture"],
-        temporal_window_size=train_dataset.temporal_window_size,
-        baseline_hyperparameters=config["general_architecture"]["hyperparameters"],
-        phnn_string_hyperparameters=config["model"],
-        load_model_dictionary=config['model']['load_model_dictionary'],
-        checkpoint_file=config["model"]["checkpoint_file"]
-    ).to(device)
-
-
-    ###### STATE ESTIMATOR ######
-
-    if config["data"]["training_estimate_positions"]:
-
-        estimator = load_estimator(
-            architecture_type=config["estimator"]["architecture_type"],
-            input_dim=train_dataset.temporal_window_size,
-            hidden_dim=config["estimator"]["hidden_dim"],
-            n=train_dataset.n,
-            index=train_dataset.index,
-            positioning_hard_constraint=config["estimator"]["positioning_hard_constraint"],
-            load_estimator_dictionary=config['estimator']['load_estimator_dictionary'],
-            checkpoint_file=config['estimator']['checkpoint_file']
-        ).to(device)
-
-    else:
-
-        estimator = None
-
-
-    ###### STATE DECODER ######
-    if config["general_architecture"]["use_decoder"] and config["general_architecture"]["model_type"] != 'baseline':
-        
-        decoder = load_decoder(
-            input_dim=2 * train_dataset.n,
-            hidden_dim=config["decoder"]["hidden_dim"],
-            output_dim=train_dataset.temporal_window_size,
-            n=train_dataset.n,
-            load_decoder_dictionary=config['decoder']['load_decoder_dictionary'],
-            checkpoint_file=config['decoder']['checkpoint_file']
-        ).to(device)
-
-    else:
-
-        decoder = None
 
 
     # DEFINE THE NUMERICAL SOLVER.

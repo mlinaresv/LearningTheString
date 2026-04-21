@@ -1,11 +1,14 @@
 import os
 import re
 import numpy as np
+from PIL import Image
 from tqdm import tqdm
 import imageio.v2 as imageio
 from pdf2image import convert_from_path
 
+
 def spectrograms_to_video(folder_path, output_path="output.mp4", fps=8):
+    
     pattern = re.compile(r"predicted_spectrogram_step_(\d+)\.pdf")
 
     # --- Load reference spectrogram once ---
@@ -52,10 +55,4 @@ def spectrograms_to_video(folder_path, output_path="output.mp4", fps=8):
             writer.append_data(np.array(combined))
 
     print(f"Video saved to {output_path}")
-
-
-if __name__ == '__main__':
-
-    folder_path = '/u/anasynth/linares/LearningTheString/sav_string/runs/20260412_020303'
-
-    spectrograms_to_video(folder_path)
+    
