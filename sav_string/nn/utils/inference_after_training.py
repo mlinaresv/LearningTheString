@@ -3,9 +3,10 @@ from beartype import beartype
 import matplotlib.pyplot as plt
 from sav_string.nn.baseline import BaselineFlow
 from sav_string.nn.phnn_string import PHNNString
+from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.utils.loader import load_configuration, load_learnable_objects
 from sav_string.nn.utils.inference_during_training import inference_during_training
-from sav_string.utils.loader import load_configuration, load_datasets, load_learnable_objects
 
 
 @beartype
@@ -16,7 +17,9 @@ def infer_a_model(
         n_trajectories_infer: int,
         initialization_id: int,
         test_audio_duration: float,
-        infer_best_model: bool
+        infer_best_model: bool,
+        train_dataset: H5TimeShiftDataset,
+        val_dataset: H5TimeShiftDataset
         
     ):
 
@@ -44,7 +47,6 @@ def infer_a_model(
     # Load configuration file, set the device and create the datasets.
     config = load_configuration(f'{results_path}/config.yaml')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_dataset, val_dataset = load_datasets(config, n_trajectories_train)
 
     # Decide which type of checkpoint we load.
     if not infer_best_model:
@@ -78,7 +80,7 @@ def infer_a_model(
     )
 
     
-    return q_trajectory, p_trajectory, next_observation
+    return q_trajectory, p_trajectory, next_observation, model
 
 
 
@@ -102,7 +104,7 @@ def compute_inference_errors(
 
         # Compute the different inference losses.
         mse_inference_error = (prediction_inference - ground_truth_inference)**2
-        mae_inference_error = torch.abs(prediction_inference, ground_truth_inference)
+        mae_inference_error = torch.abs(prediction_inference - ground_truth_inference)
 
     ###### OBSERVATION ERROR ######
     if not isinstance(model, BaselineFlow):
@@ -110,30 +112,7 @@ def compute_inference_errors(
     else:
         mse_observation_error = None
 
-    # DEFINE THE PLOT AND SHOW THE INFORMATION
-    # --> If the model is PHNNString, we plot the state and the observation error.
-    # --> If the model is not PHNNString, we only plot either the state or the observation error.
-    n_plots = 3 if isinstance(model, PHNNString) else 1
-    fig, axes =  plt.subplots(n_plots, 1, figsize=(6, 4 * n_plots))
-
-    if isinstance(model, PHNNString):
-        axes[0].plot(torch.cumsum(mse_inference_error.mean(dim=(0,2)), dim=0))
-        axes[1].plot(torch.cumsum(mae_inference_error.mean(dim=(0,2)), dim=0))
-        axes[2].plot(torch.cumsum(mse_observation_error.mean(dim=0), dim=0))
-    else:
-        if not isinstance(model, BaselineFlow):
-            axes.plot(torch.cumsum(mse_observation_error.mean(dim=0), dim=0))
-        else:
-            axes.plot(torch.cumsum(mse_inference_error.mean(dim=0), dim=0))
-
-        axes.set_yscale('log')
-        axes.set_ylim(1e-6, 1e10)
-        axes.set_xlim(0, 180000)
-        axes.set_title(f'Cumulative observation error (MSE: {mse_observation_error.mean():.2e})')
-    
-    fig.savefig('inference_errors_over_time.pdf')
-
-    return mse_inference_error, mse_observation_error  
+    return mse_inference_error.mean(), mse_observation_error  
 
 
 
@@ -170,7 +149,7 @@ def listen_to_a_model(
         (sr, scaled_audio)
     """
 
-    _, p_trajectory, _ = infer_a_model(
+    _, p_trajectory, _, _ = infer_a_model(
         results_path=results_path,
         n_trajectories_train=n_trajectories_train,
         n_trajectories_infer=1,

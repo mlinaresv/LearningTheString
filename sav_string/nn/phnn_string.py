@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sav_string.nn.upper_triangular_net import UpperTriangularNet
-from sav_string.nn.nonlinear_operator_net import LearnableDiff, LearnableEnergy
+from sav_string.nn.nonlinear_operators import LearnableDiff, LearnableEnergy
 
 
 def compute_order_of_magnitude(element):

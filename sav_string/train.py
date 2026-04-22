@@ -11,9 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 from librosa.util.exceptions import ParameterError
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.utils.string import listen_to_a_trajectory
-from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel
-from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
+from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, TransformerStateEstimator
+from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from sav_string.utils.losses import (reconstruction_loss, 
                                      latent_estimation_consistency_loss, 
                                      next_momentum_loss, 

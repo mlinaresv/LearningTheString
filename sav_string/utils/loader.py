@@ -6,9 +6,8 @@ from beartype import beartype
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.utils.string import save_as_hdf5
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
-from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow
+from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
+from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow, TransformerStateEstimator
 
 
 def create_train_validation_dataset(directory, filename, ratio=0.8):
@@ -85,10 +84,7 @@ def load_configuration(config_path: str):
 
 
 
-def load_datasets(
-        config: dict,
-        train_n_traj: int
-    ):
+def load_train_dataset(config, train_n_traj):
 
     train_dataset = H5TimeShiftDataset(
 
@@ -104,6 +100,12 @@ def load_datasets(
         
     )
 
+    return train_dataset
+
+
+
+def load_val_dataset(config):
+
     val_dataset = H5TimeShiftDataset(
 
         h5path=config["data"]["validation_dataset_path"], 
@@ -116,6 +118,17 @@ def load_datasets(
         ignore_control=config["data"]["validation_ignore_control"]
         
     )
+
+    return val_dataset
+
+
+def load_datasets(
+        config: dict,
+        train_n_traj: int
+    ):
+
+    train_dataset = load_train_dataset(config, train_n_traj)
+    val_dataset = load_val_dataset(config)
 
     return train_dataset, val_dataset
 

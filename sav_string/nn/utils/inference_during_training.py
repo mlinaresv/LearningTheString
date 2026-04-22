@@ -12,8 +12,8 @@ from sav_string.sav_solver import SAVSolver
 from sav_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.transformer import TransformerStateEstimator
-from sav_string.nn.nonlinear_operator_net import StateEstimator, StateDecoder
+from sav_string.nn.baseline import TransformerStateEstimator
+from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow
 
 
@@ -144,7 +144,9 @@ def inference_during_training(
             if torch.isnan(next_observation).any():
                 warnings.warn("The observed trajectory has invalid numbers!", RuntimeWarning) 
 
-    del q0, p0, u, exc_pos           
+    del q0, p0, u, exc_pos, state
+    import gc
+    gc.collect()           
 
     return p_trajectory, q_trajectory, next_observation
 

@@ -40,8 +40,8 @@ def main(config: dict, n_traj: int, log_dir: str, device: str):
         estimator=estimator,
         decoder=decoder,
         lr=config["train"]["learning_rate"],
-        load_optimizer_dictionary=config["optimizer"]["load_optimizer_dictionary"],
-        checkpoint_file=config["optimizer"]["checkpoint_file"]
+        load_optimizer_dictionary=config["checkpoint"]["load_dictionary"],
+        checkpoint_file=config["checkpoint"]["checkpoint_file"]
     )
 
     # TRAIN THE MODEL.
