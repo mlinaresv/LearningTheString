@@ -4,7 +4,9 @@ import torch
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 import matplotlib.pyplot as plt
+from joblib import Parallel, delayed
 from sav_string.nn.utils.inference_during_training import compute_parameters_errors
 from sav_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
 from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects
@@ -28,10 +30,9 @@ def create_results_table(results_path, type_of_result='inference'):
         ['results_directory', 'n_traj_train', 'initialization_id', 'inference_metric']
     """
 
-    records = []
+    records, tasks = [], []
     # Load the configuration and the validation dataset.
     config = load_configuration(f'{results_path}/config.yaml')
-    val_dataset = load_val_dataset(config)
     # Decide the device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -48,7 +49,6 @@ def create_results_table(results_path, type_of_result='inference'):
 
         try:
             n_traj_train = int(train_folder.replace("_traj", ""))
-            train_dataset = load_train_dataset(config, n_traj_train)
 
         except ValueError:
             raise ValueError('The number of training trajectories was not properly retrieved!')
@@ -69,45 +69,17 @@ def create_results_table(results_path, type_of_result='inference'):
             # Run inference
             if type_of_result == 'inference':
 
-                try:
-
-                    # Infer the trajectories.
-                    q_trajectory, p_trajectory, next_observation, model = infer_a_model(
-                        results_path=results_path,
-                        n_trajectories_infer=12,
-                        test_audio_duration=2.0,
-                        train_dataset=train_dataset,
-                        val_dataset=val_dataset,
-                        checkpoint_file=checkpoint_file,
-                        device=device
-                    )
-
-                    # Compute the inference errors. 
-                    mse_inference_error, relative_mse = compute_inference_errors(
-                        q_trajectory=q_trajectory,
-                        p_trajectory=p_trajectory,
-                        next_observation=next_observation,
-                        dataset=val_dataset,
-                        model=model
-                    )
-
-                    del q_trajectory, p_trajectory, next_observation, model
-                    gc.collect()
-
-                except Exception as e:
-                    print(f"Inference failed for {results_path}/{train_folder}/{init_folder}: {e}")
-                    continue
-
-                # Append results
-                records.append({
-                    "results_directory": config["general_architecture"]["baseline_architecture"],
-                    "n_trajectories_train": n_traj_train,
-                    "initialization_id": initialization_id,
-                    "mse": mse_inference_error,
-                    "rmse": relative_mse
-                })
+                tasks.append((
+                    results_path,
+                    config,
+                    train_folder,
+                    init_folder,
+                    device
+                ))
 
             elif type_of_result == 'parameters_errors':
+
+                val_dataset = load_val_dataset(config)
 
                 model, _, _ = load_learnable_objects(
                     config=config,
@@ -126,8 +98,16 @@ def create_results_table(results_path, type_of_result='inference'):
                 records.append(errors)
 
 
-        del train_dataset
-        gc.collect()
+    if type_of_result == 'inference':
+
+        num_workers = 4
+        torch.set_num_threads(1)
+
+        results = Parallel(n_jobs=num_workers)(
+            delayed(process_one_model)(task) for task in tqdm(tasks)
+        )
+
+        records = [r for r in results if r is not None]
     
     # Create DataFrame
     df = pd.DataFrame(records)
@@ -191,3 +171,69 @@ def create_boxplot(csv_file: str, type_of_result: str = 'inference'):
         plt.title("Error distribution across parameters and trajectories")
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         plt.savefig(f'boxplot_{type_of_result}.pdf')
+
+
+def process_one_model(args):
+
+    (
+        results_path,
+        config,
+        train_folder,
+        init_folder,
+        device
+    ) = args
+
+    val_dataset = load_val_dataset(config)
+
+    train_path = os.path.join(results_path, train_folder)
+    init_path = os.path.join(train_path, init_folder)
+
+    if not os.path.isdir(init_path):
+        return None
+
+    try:
+        n_traj_train = int(train_folder.replace("_traj", ""))
+        initialization_id = int(init_folder)
+        train_dataset = load_train_dataset(config, n_traj_train)
+    except ValueError:
+        raise ValueError("Bad folder naming")
+
+    checkpoint_file = f'{results_path}/{n_traj_train}_traj/{initialization_id}/best_model.pth'
+
+    
+    try:
+        q_trajectory, p_trajectory, next_observation, model = infer_a_model(
+            results_path=results_path,
+            n_trajectories_infer=12,
+            test_audio_duration=2.0,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            checkpoint_file=checkpoint_file,
+            device=device
+        )
+
+        mse_inference_error, relative_mse = compute_inference_errors(
+            q_trajectory=q_trajectory,
+            p_trajectory=p_trajectory,
+            next_observation=next_observation,
+            dataset=val_dataset,
+            model=model
+        )
+
+        del q_trajectory, p_trajectory, next_observation, model
+        gc.collect()
+
+    except Exception as e:
+        print(f"Failed for {train_folder}/{init_folder}: {e}")
+        return None
+
+    del train_dataset, val_dataset
+    gc.collect()
+
+    return {
+        "results_directory": config["general_architecture"]["baseline_architecture"],
+        "n_trajectories_train": n_traj_train,
+        "initialization_id": initialization_id,
+        "mse": mse_inference_error,
+        "rmse": relative_mse
+    }

@@ -166,19 +166,21 @@ class SAVSolver():
         q_trajectory[..., 0, :] = qlast
         r_trajectory[..., 0, :] = rnow
 
-        # Main loop.
-        for i in range(self.Nt):
+        with torch.no_grad():
 
-            # Define the control at the time step.            
-            u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
-            qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
-            qlast = qnext
-            plast = pnext
-            rnow = rnext  
-            # Append the new generated states to the final trajectory.
-            p_trajectory[..., i + 1, :] = pnext
-            q_trajectory[..., i + 1, :] = qnext
-            r_trajectory[..., i + 1, :] = rnext
+            # Main loop.
+            for i in range(self.Nt):
+
+                # Define the control at the time step.            
+                u_t = u_func((i + 0.5) * self.dt) if isinstance(u_func, types.FunctionType) else u_func[:, i]
+                qnext, pnext, rnext = self.time_step(qlast, plast, rnow, u_t, excitation_position=excitation_position)
+                qlast = qnext
+                plast = pnext
+                rnow = rnext  
+                # Append the new generated states to the final trajectory.
+                p_trajectory[..., i + 1, :] = pnext
+                q_trajectory[..., i + 1, :] = qnext
+                r_trajectory[..., i + 1, :] = rnext
 
         return p_trajectory, q_trajectory, r_trajectory
 
