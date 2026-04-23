@@ -6,14 +6,31 @@ $$\partial_t^2q=\frac{1}{\mu}[(T\partial_x^2-EI\partial_x^4)q-2\mu(\eta_0-\eta_1
 
 from a port-Hamiltonian approach
 
-$$ \begin{bmatrix}
-        \partial_tq \\ \partial_tp
-    \end{bmatrix}=\left(\underbrace{\begin{bmatrix}
-        0 & 1 \\ -1 & 0
-    \end{bmatrix}}_{J}-\underbrace{\begin{bmatrix}
-        0 & 0 \\ 0 & 2\mu(\eta_0-\eta_1\partial_x^2)
-    \end{bmatrix}}_R \right)\begin{bmatrix}
-        \delta_{q}\mathcal{H} \\ \delta_{p}\mathcal{H}
-    \end{bmatrix}+\begin{bmatrix}
-        0 \\ \delta_{x_{e}} 
-    \end{bmatrix}f_{e} $$
+$$
+\begin{bmatrix}
+\partial_t q \\
+\partial_t p
+\end{bmatrix}
+=
+\left(
+\begin{bmatrix}
+0 & 1 \\
+-1 & 0
+\end{bmatrix}
+-
+\begin{bmatrix}
+0 & 0 \\
+0 & 2\mu(\eta_0-\eta_1\partial_x^2)
+\end{bmatrix}
+\right)
+\begin{bmatrix}
+\delta_q \mathcal{H} \\
+\delta_p \mathcal{H}
+\end{bmatrix}
++
+\begin{bmatrix}
+0 \\
+\delta_{x_e}
+\end{bmatrix}
+f_e
+$$
