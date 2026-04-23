@@ -1,0 +1,193 @@
+import os
+import gc
+import torch
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sav_string.nn.utils.inference_during_training import compute_parameters_errors
+from sav_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
+from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects
+
+
+def create_results_table(results_path, type_of_result='inference'):
+    """
+    Parameters
+    ----------
+    results_path : str
+        Path to the root directory containing experiment results.
+    inference_fn : callable
+        Function with signature:
+        inference_fn(results_path, n_traj_train, initialization_id)
+        returning a metric (float, dict, etc.).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns:
+        ['results_directory', 'n_traj_train', 'initialization_id', 'inference_metric']
+    """
+
+    records = []
+    # Load the configuration and the validation dataset.
+    config = load_configuration(f'{results_path}/config.yaml')
+    val_dataset = load_val_dataset(config)
+    # Decide the device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Loop over folders like "{n_traj_train}_train"
+    for train_folder in os.listdir(results_path):
+        train_path = os.path.join(results_path, train_folder)
+
+        if not os.path.isdir(train_path):
+            continue
+
+        # Extract n_traj from folder name
+        if not train_folder.endswith("_traj"):
+            continue
+
+        try:
+            n_traj_train = int(train_folder.replace("_traj", ""))
+            train_dataset = load_train_dataset(config, n_traj_train)
+
+        except ValueError:
+            raise ValueError('The number of training trajectories was not properly retrieved!')
+
+        # Loop over initialization folders
+        for init_folder in os.listdir(train_path):
+
+            init_path = os.path.join(train_path, init_folder)
+
+            if not os.path.isdir(init_path):
+                continue
+
+            initialization_id = int(init_folder)
+
+            # Decide which type of checkpoint we load.
+            checkpoint_file = f'{results_path}/{n_traj_train}_traj/{initialization_id}/best_model.pth'
+
+            # Run inference
+            if type_of_result == 'inference':
+
+                try:
+
+                    # Infer the trajectories.
+                    q_trajectory, p_trajectory, next_observation, model = infer_a_model(
+                        results_path=results_path,
+                        n_trajectories_infer=12,
+                        test_audio_duration=2.0,
+                        train_dataset=train_dataset,
+                        val_dataset=val_dataset,
+                        checkpoint_file=checkpoint_file,
+                        device=device
+                    )
+
+                    # Compute the inference errors. 
+                    mse_inference_error, relative_mse = compute_inference_errors(
+                        q_trajectory=q_trajectory,
+                        p_trajectory=p_trajectory,
+                        next_observation=next_observation,
+                        dataset=val_dataset,
+                        model=model
+                    )
+
+                    del q_trajectory, p_trajectory, next_observation, model
+                    gc.collect()
+
+                except Exception as e:
+                    print(f"Inference failed for {results_path}/{train_folder}/{init_folder}: {e}")
+                    continue
+
+                # Append results
+                records.append({
+                    "results_directory": config["general_architecture"]["baseline_architecture"],
+                    "n_trajectories_train": n_traj_train,
+                    "initialization_id": initialization_id,
+                    "mse": mse_inference_error,
+                    "rmse": relative_mse
+                })
+
+            elif type_of_result == 'parameters_errors':
+
+                model, _, _ = load_learnable_objects(
+                    config=config,
+                    dataset=val_dataset,
+                    device=device,
+                    load_model_dictionary=True,
+                    checkpoint_file=checkpoint_file
+                )
+
+                errors = compute_parameters_errors(model)
+
+                # Add the keys corresponding to the training trajectories and the initialization id.
+                errors["results_directory"] = config["general_architecture"]["baseline_architecture"]
+                errors["n_trajectories_train"] = n_traj_train
+                errors["initialization_id"] = initialization_id
+                records.append(errors)
+
+
+        del train_dataset
+        gc.collect()
+    
+    # Create DataFrame
+    df = pd.DataFrame(records)
+    filename = f'{config["general_architecture"]["baseline_architecture"]}_{type_of_result}.csv'
+    df.to_csv(f'{results_path}/{filename}', index=False)
+
+
+
+def create_boxplot(csv_file: str, type_of_result: str = 'inference'): 
+
+    # Load your CSV
+    df = pd.read_csv(csv_file)
+
+    # Optional: ensure correct types
+    df['n_trajectories_train'] = df['n_trajectories_train'].astype(int)
+
+    if type_of_result == 'inference':
+
+        df['rmse'] = df['rmse'].apply(
+            lambda x: np.array(float(x.replace("tensor(", "").replace(")", "")))
+        )
+
+        # Create the boxplot
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(
+            data=df,
+            x='n_trajectories_train',
+            y='rmse'
+        )
+
+        # Labels and title
+        plt.xlabel("Number of Training Trajectories")
+        plt.ylabel("Inference Metric")
+        plt.yscale('log')
+        plt.title("Performance vs Number of Trajectories (All Initializations Combined)")
+
+        plt.tight_layout()
+        plt.savefig(f'boxplot_{type_of_result}.pdf')
+
+    elif type_of_result == 'parameters_errors':
+
+        param_cols = ["rho", "Ra", "rhol", "E", "T", "I", "EnlGeomConst", "eta0", "eta1"]
+
+        df_long = df.melt(
+            id_vars=["n_trajectories_train", "initialization_id"],
+            value_vars=param_cols,
+            var_name="parameter",
+            value_name="error"
+        )
+
+        plt.figure(figsize=(10,6))
+
+        sns.boxplot(
+            data=df_long,
+            x="n_trajectories_train",
+            y="error",
+            hue="parameter",
+            orient="v"  # or "h"
+        )
+
+        plt.title("Error distribution across parameters and trajectories")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.savefig(f'boxplot_{type_of_result}.pdf')

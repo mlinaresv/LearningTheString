@@ -237,6 +237,42 @@ def compute_non_linear_energy_error(
 
 
 @beartype
+def compute_parameters_errors(
+        
+        model: PHNNString
+
+):
+    
+    with torch.no_grad():
+        # Get the true Hamiltonian parameters.
+        rho = torch.tensor(float(model.true_string_parameters['rho']))
+        Ra = torch.tensor(float(model.true_string_parameters['Ra']))
+        E = torch.tensor(float(model.true_string_parameters['E']))
+        T = torch.tensor(float(model.true_string_parameters['T']))
+        rhol = rho * torch.pi * Ra**2
+        I = torch.pi * Ra**4 / 4
+        EnlGeomConst = (E * torch.pi * Ra**2 - T) / 8
+
+        # Get the true dissipation parameters.
+        eta0 = torch.tensor(float(model.true_string_parameters['eta0']))
+        eta1 = torch.tensor(float(model.true_string_parameters['eta1']))
+
+    return {
+
+        'rho': (torch.abs(rho - torch.abs(model.rho)) / rho).item(),
+        'Ra': (torch.abs(Ra - torch.abs(model.Ra)) / Ra).item(),
+        'rhol': (torch.abs(rhol - model.rhol) / rhol).item(),
+        'E': (torch.abs(E - torch.abs(model.E)) / E).item(),
+        'T': (torch.abs(T - torch.abs(model.T)) / T).item(),
+        'I': (torch.abs(I - model.I) / I).item(),
+        'EnlGeomConst': (torch.abs(EnlGeomConst - model.EnlGeomConst) / EnlGeomConst).item(),
+        'eta0': (torch.abs(eta0 - torch.abs(model.eta0)) / eta0).item(),
+        'eta1': (torch.abs(eta1 - torch.abs(model.eta1)) / eta1).item()
+
+    }
+
+
+@beartype
 def write_constant_parameters_errors(
         
         writer: SummaryWriter, 
@@ -259,31 +295,20 @@ def write_constant_parameters_errors(
         Writing index.
     """
 
-    # Get the true Hamiltonian parameters.
-    rho = torch.tensor(float(model.true_string_parameters['rho']))
-    Ra = torch.tensor(float(model.true_string_parameters['Ra']))
-    E = torch.tensor(float(model.true_string_parameters['E']))
-    T = torch.tensor(float(model.true_string_parameters['T']))
-    rhol = rho * torch.pi * Ra**2
-    I = torch.pi * Ra**4 / 4
-    EnlGeomConst = (E * torch.pi * Ra**2 - T) / 8
-
-    # Get the true dissipation parameters.
-    eta0 = torch.tensor(float(model.true_string_parameters['eta0']))
-    eta1 = torch.tensor(float(model.true_string_parameters['eta1']))
+    errors = compute_parameters_errors(model)
 
     # Plot the error between the true Hamiltonian constant values and the predicted ones.
-    writer.add_scalar("Parameters/Rho", torch.abs(rho - torch.abs(model.rho)) / rho, index)
-    writer.add_scalar("Parameters/Ra", torch.abs(Ra - torch.abs(model.Ra)) / Ra, index)
-    writer.add_scalar("Parameters/rhol", torch.abs(rhol - model.rhol) / rhol, index)
-    writer.add_scalar("Parameters/E", torch.abs(E - torch.abs(model.E)) / E, index)
-    writer.add_scalar("Parameters/T", torch.abs(T - torch.abs(model.T)) / T, index)
-    writer.add_scalar("Parameters/I", torch.abs(I - model.I) / I, index)
-    writer.add_scalar("Parameters/EnlGeomConst", torch.abs(EnlGeomConst - model.EnlGeomConst) / EnlGeomConst, index)
+    writer.add_scalar("Parameters/Rho", errors['rho'], index)
+    writer.add_scalar("Parameters/Ra", errors['Ra'], index)
+    writer.add_scalar("Parameters/rhol", errors['rhol'], index)
+    writer.add_scalar("Parameters/E", errors['E'], index)
+    writer.add_scalar("Parameters/T", errors['T'], index)
+    writer.add_scalar("Parameters/I", errors['I'], index)
+    writer.add_scalar("Parameters/EnlGeomConst", errors['EnlGeomConst'], index)
 
     # Plot the error between the true dissipation constant values and the predicted ones.
-    writer.add_scalar("Parameters/eta0", torch.abs(eta0 - torch.abs(model.eta0)) / eta0, index)
-    writer.add_scalar("Parameters/eta1", torch.abs(eta1 - torch.abs(model.eta1)) / eta1, index)
+    writer.add_scalar("Parameters/eta0", errors['eta0'], index)
+    writer.add_scalar("Parameters/eta1", errors['eta1'], index)
 
 
 @beartype

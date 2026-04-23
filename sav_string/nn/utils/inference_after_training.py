@@ -12,14 +12,13 @@ from sav_string.nn.utils.inference_during_training import inference_during_train
 @beartype
 def infer_a_model(
         
-        results_path: str,
-        n_trajectories_train: int, 
+        results_path: str, 
         n_trajectories_infer: int,
-        initialization_id: int,
         test_audio_duration: float,
-        infer_best_model: bool,
         train_dataset: H5TimeShiftDataset,
-        val_dataset: H5TimeShiftDataset
+        val_dataset: H5TimeShiftDataset,
+        checkpoint_file: str,
+        device: str
         
     ):
 
@@ -46,13 +45,7 @@ def infer_a_model(
     
     # Load configuration file, set the device and create the datasets.
     config = load_configuration(f'{results_path}/config.yaml')
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    # Decide which type of checkpoint we load.
-    if not infer_best_model:
-        checkpoint_file = f'{results_path}/{n_trajectories_train}_traj/{initialization_id}/checkpoint.pth'
-    else:
-        checkpoint_file = f'{results_path}/{n_trajectories_train}_traj/{initialization_id}/best_model.pth'
+    
 
 
     # Load the model, estimator and decoder.
@@ -103,7 +96,8 @@ def compute_inference_errors(
         prediction_inference = torch.concat((q_trajectory, p_trajectory), axis=-1)
 
         # Compute the different inference losses.
-        mse_inference_error = (prediction_inference - ground_truth_inference)**2
+        mse_inference_error = ((prediction_inference - ground_truth_inference) ** 2).mean()
+        relative_mse = mse_inference_error / (ground_truth_inference ** 2).mean()
         mae_inference_error = torch.abs(prediction_inference - ground_truth_inference)
 
     ###### OBSERVATION ERROR ######
@@ -112,7 +106,7 @@ def compute_inference_errors(
     else:
         mse_observation_error = None
 
-    return mse_inference_error.mean(), mse_observation_error  
+    return mse_inference_error, relative_mse 
 
 
 
