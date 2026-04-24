@@ -261,7 +261,7 @@ def compute_parameters_errors(
 
         'rho': (torch.abs(rho - torch.abs(model.rho)) / rho).item(),
         'Ra': (torch.abs(Ra - torch.abs(model.Ra)) / Ra).item(),
-        'rhol': (torch.abs(rhol - model.rhol) / rhol).item(),
+        'rhol': (torch.abs(rhol - torch.abs(model.rhol)) / rhol).item(),
         'E': (torch.abs(E - torch.abs(model.E)) / E).item(),
         'T': (torch.abs(T - torch.abs(model.T)) / T).item(),
         'I': (torch.abs(I - model.I) / I).item(),

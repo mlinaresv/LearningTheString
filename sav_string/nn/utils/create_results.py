@@ -30,9 +30,29 @@ def create_results_table(results_path, type_of_result='inference'):
         ['results_directory', 'n_traj_train', 'initialization_id', 'inference_metric']
     """
 
-    records, tasks = [], []
     # Load the configuration and the validation dataset.
     config = load_configuration(f'{results_path}/config.yaml')
+
+    # Look for a potential .csv file already existing.
+    filename = f'{config["general_architecture"]["baseline_architecture"]}_{type_of_result}.csv'
+    csv_path = f'{results_path}/{filename}'
+
+    if os.path.exists(csv_path):
+        existing_df = pd.read_csv(csv_path)
+        print(f'--> Overwriting the information in the file: {csv_path}')
+    else:
+        existing_df = pd.DataFrame()
+
+    # Define the "already done set".
+    key_cols = ["n_trajectories_train", "initialization_id"]
+
+    if not existing_df.empty:
+        done = set(zip(existing_df[key_cols[0]], existing_df[key_cols[1]]))
+    else:
+        done = set()
+
+    # Create an empty list of records and tasks.
+    records, tasks = [], []
     # Decide the device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -62,6 +82,10 @@ def create_results_table(results_path, type_of_result='inference'):
                 continue
 
             initialization_id = int(init_folder)
+
+            # Skip if this already if this result has already been computed.
+            if (n_traj_train, initialization_id) in done:
+                continue
 
             # Decide which type of checkpoint we load.
             checkpoint_file = f'{results_path}/{n_traj_train}_traj/{initialization_id}/best_model.pth'
@@ -100,7 +124,7 @@ def create_results_table(results_path, type_of_result='inference'):
 
     if type_of_result == 'inference':
 
-        num_workers = 4
+        num_workers = 2
         torch.set_num_threads(1)
 
         results = Parallel(n_jobs=num_workers)(
@@ -109,10 +133,18 @@ def create_results_table(results_path, type_of_result='inference'):
 
         records = [r for r in results if r is not None]
     
-    # Create DataFrame
-    df = pd.DataFrame(records)
-    filename = f'{config["general_architecture"]["baseline_architecture"]}_{type_of_result}.csv'
-    df.to_csv(f'{results_path}/{filename}', index=False)
+
+    # Create DataFrame and concatenate, if existing, already inferred information.
+    new_df = pd.DataFrame(records)
+    if not existing_df.empty:
+        df = pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        df = new_df
+
+    # The original file is either: completely unchanged or completely replaced!
+    tmp_path = csv_path + ".tmp"
+    df.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, csv_path)
 
 
 
@@ -169,7 +201,9 @@ def create_boxplot(csv_file: str, type_of_result: str = 'inference'):
         )
 
         plt.title("Error distribution across parameters and trajectories")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.legend()
+        plt.yscale('log')
+        plt.ylim(1e-10, 1e-2)
         plt.savefig(f'boxplot_{type_of_result}.pdf')
 
 
@@ -234,6 +268,6 @@ def process_one_model(args):
         "results_directory": config["general_architecture"]["baseline_architecture"],
         "n_trajectories_train": n_traj_train,
         "initialization_id": initialization_id,
-        "mse": mse_inference_error,
-        "rmse": relative_mse
+        "mse": mse_inference_error.item(),
+        "rmse": relative_mse.item()
     }

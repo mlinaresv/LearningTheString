@@ -93,7 +93,7 @@ class PHNNString(nn.Module):
     @property
     def rho(self):
         if self.learn_linear_constants:
-            return torch.abs(self.rho_) * float(self.true_string_parameters['rho'])
+            return torch.abs(self.rho_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['rho']))
         else:
             return torch.tensor(float(self.true_string_parameters['rho']))
     
@@ -102,12 +102,12 @@ class PHNNString(nn.Module):
         if not self.learn_linear_constants or not self.learn_radius_coefficient:
             return torch.tensor(float(self.true_string_parameters['Ra']))    
         else:
-            return torch.abs(self.Ra_) * float(self.true_string_parameters['Ra'])
+            return torch.abs(self.Ra_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['Ra']))
         
     @property
     def E(self):
         if self.learn_linear_constants:
-            return torch.abs(self.E_) * float(self.true_string_parameters['E'])
+            return torch.abs(self.E_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['E']))
         else:
             return torch.tensor(float(self.true_string_parameters['E']))
         
@@ -116,19 +116,19 @@ class PHNNString(nn.Module):
         if not self.learn_linear_constants or not self.learn_tension_coefficient:
             return torch.tensor(float(self.true_string_parameters['T']))  
         else:
-            return torch.abs(self.T_) * float(self.true_string_parameters['T'])
+            return torch.abs(self.T_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['T']))
     
     @property
     def eta0(self):
         if self.learn_dissipation_constants:
-            return torch.abs(self.eta0_) * float(self.true_string_parameters['eta0'])
+            return torch.abs(self.eta0_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta0']))
         else:
             return torch.tensor(float(self.true_string_parameters['eta0']))
     
     @property
     def eta1(self):
         if self.learn_dissipation_constants:
-            return torch.abs(self.eta1_) * float(self.true_string_parameters['eta1'])
+            return torch.abs(self.eta1_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta1']))
         else:
             return torch.tensor(float(self.true_string_parameters['eta1']))
 

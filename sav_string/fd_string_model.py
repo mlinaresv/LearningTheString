@@ -81,6 +81,14 @@ class String:
         d2xq /= self.h**2
         return d2xq
     
+
+    def dxq_op(self, q):
+        dxq = np.zeros((*q.shape[:-1], self.N + 1))
+        dxq[..., -1] = 0
+        dxq[..., :-1] = q
+        dxq[..., 1:] -= q
+        dxq /= self.h
+        return dxq
     
     def K_op(self, q):
         """ K operator (Second part of Eq. (5a)). """
@@ -105,11 +113,14 @@ class String:
 
     def Ek(self, p):
         _, M, _ = self.build_matrices()
-        return 0.5 * np.einsum('... j, ... j -> ...', p, M * p)
+        Ek = 0.5 * np.einsum('... j, ... j -> ...', p, M * p)
+        return Ek
     
 
     def Ep(self, q):
-        return 0.5 * np.einsum('... j, ... j -> ...', q, self.K_op(q))
+        dxq = self.dxq_op(q)
+        d2xq = self.d2xq_op(q)
+        return (0.5 * self.h * self. T * np.sum((dxq)**2, axis=-1)) + (0.5 * self.h * self.E * self.I * np.sum((d2xq)**2, axis=-1)) 
     
 
     def Enl(self, q):
