@@ -8,6 +8,7 @@ from datetime import datetime
 sys.path.append('/u/anasynth/linares/LearningTheString')
 from sav_string.runner.run import main
 from sav_string.utils import manage_gpus as mgp
+from sav_string.utils.notifier import send_slack
 from sav_string.utils.loader import load_configuration
 
 
@@ -41,10 +42,10 @@ def experimenter(config_path='test_configuration.yaml'):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # DETERMINE THE LOGGING DIRECTORY.
-    log_dir = os.path.join("runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(f'./{log_dir}')
+    log_dir = os.path.join("/data2/anasynth_nonbp/linares/LearningTheString/runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(f'{log_dir}')
     # Configuration file.
-    output_path = f'./{log_dir}/config.yaml'
+    output_path = f'{log_dir}/config.yaml'
     with open(output_path, 'w') as f:
         yaml.safe_dump(config, f)
 
@@ -54,16 +55,21 @@ def experimenter(config_path='test_configuration.yaml'):
         for i in range(n_initializations):
 
             initialization_log_dir = f'{log_dir}/{n_traj}_traj/{i}'
-            os.makedirs(f'./{initialization_log_dir}')
+            os.makedirs(f'{initialization_log_dir}')
 
-            main(
+            try:
+                main(
 
-                config, 
-                n_traj,
-                initialization_log_dir, 
-                device
-            
-            )
+                    config, 
+                    n_traj,
+                    initialization_log_dir, 
+                    device
+                
+                )
+                send_slack(message=f'{config["general_architecture"]["baseline_architecture"]}: Finished the training (traj:{n_traj}, init_id: {i})!')
+
+            except:
+                send_slack(message=f'{config["general_architecture"]["baseline_architecture"]}: ERROR OCURRED (traj:{n_traj}, init_id: {i})!')
 
 
 if __name__ == '__main__':

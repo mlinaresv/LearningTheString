@@ -10,7 +10,7 @@ from sav_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
 from librosa.util.exceptions import ParameterError
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.utils.string_ import listen_to_a_trajectory
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, TransformerStateEstimator
 from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from sav_string.utils.losses import (reconstruction_loss, 
@@ -292,7 +292,7 @@ def train(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "loss": loss.item(),
 
-                }, f"./{log_dir}/checkpoint.pth")
+                }, f"{log_dir}/checkpoint.pth")
 
                 
                 ###### MODEL GRADIENTS AND PARAMETERS ######
@@ -426,7 +426,7 @@ def train(
                         "decoder_state_dict": decoder_state_dict,
                         "inference_error": inference_error,
                         "observation_error": mse_observation_error
-                    }, f"./{log_dir}/best_model.pth")
+                    }, f"{log_dir}/best_model.pth")
 
 
                     ###### LISTEN TO THE MODEL PREDICTION ######

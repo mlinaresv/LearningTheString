@@ -4,7 +4,7 @@ import torch
 from torch.optim import Adam
 from beartype import beartype
 from sav_string.nn.phnn_string import PHNNString
-from sav_string.utils.string import save_as_hdf5
+from sav_string.utils.string_ import save_as_hdf5
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
 from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow, TransformerStateEstimator
@@ -122,6 +122,25 @@ def load_val_dataset(config):
     return val_dataset
 
 
+
+def load_test_dataset(config):
+
+    test_dataset = H5TimeShiftDataset(
+
+        h5path=config["data"]["test_dataset_path"], 
+        number_of_trajectories=config["data"]["test_number_of_trajectories"],
+        lazy_access=config["data"]["validation_lazy_access"],
+        estimate_sav=config["data"]["validation_estimate_sav"],
+        estimate_positions=config["data"]["validation_estimate_positions"],
+        n_steps=config["data"]["validation_n_steps"],
+        temporal_window_size=config["data"]["validation_temporal_window_size"],
+        ignore_control=config["data"]["validation_ignore_control"]
+        
+    )
+
+    return test_dataset
+
+
 def load_datasets(
         config: dict,
         train_n_traj: int
@@ -220,10 +239,8 @@ def load_learnable_objects(
     ###### PHNNString MODEL ######
     print('--> Defining the model...')
     model = load_model(
-        baseline_architecture=config["general_architecture"]["baseline_architecture"],
+        config=config,
         temporal_window_size=dataset.temporal_window_size,
-        baseline_hyperparameters=config["general_architecture"]["hyperparameters"],
-        phnn_string_hyperparameters=config["model"],
         load_model_dictionary=load_model_dictionary,
         checkpoint_file=checkpoint_file
     ).to(device)
@@ -265,38 +282,36 @@ def load_learnable_objects(
 @beartype
 def load_model(
 
-    baseline_architecture: str,
+    config,
     temporal_window_size: int,
-    baseline_hyperparameters: dict,
-    phnn_string_hyperparameters: dict,
     load_model_dictionary: bool,
     checkpoint_file: str
 
 ):
 
-    if baseline_architecture == 'phnn_sav':
+    if config["general_architecture"]["baseline_architecture"] == 'phnn_sav':
 
         model = PHNNString(
-            N=phnn_string_hyperparameters["N"], 
-            h=phnn_string_hyperparameters["h"], 
-            hidden_dim=phnn_string_hyperparameters["hidden_dim"],
-            learn_linear_energy_operator=phnn_string_hyperparameters["learn_linear_energy_operator"],
-            learn_nonlinear_energy=phnn_string_hyperparameters["learn_nonlinear_energy"],
-            learn_linear_constants=phnn_string_hyperparameters["learn_linear_constants"],
-            learn_tension_coefficient=phnn_string_hyperparameters["learn_tension_coefficient"],
-            learn_radius_coefficient=phnn_string_hyperparameters["learn_radius_coefficient"],
-            learn_dissipation_constants=phnn_string_hyperparameters["learn_dissipation_constants"],
-            learn_nonlinear_geometric_constant=phnn_string_hyperparameters["learn_nonlinear_geometric_constant"],
-            learn_nonlinear_energy_filter=phnn_string_hyperparameters["learn_nonlinear_energy_filter"],
-            true_string_parameters=phnn_string_hyperparameters["true_string_parameters"]
+            N=config["model"]["N"], 
+            h=config["model"]["h"], 
+            hidden_dim=config["model"]["hidden_dim"],
+            learn_linear_energy_operator=config["model"]["learn_linear_energy_operator"],
+            learn_nonlinear_energy=config["model"]["learn_nonlinear_energy"],
+            learn_linear_constants=config["model"]["learn_linear_constants"],
+            learn_tension_coefficient=config["model"]["learn_tension_coefficient"],
+            learn_radius_coefficient=config["model"]["learn_radius_coefficient"],
+            learn_dissipation_constants=config["model"]["learn_dissipation_constants"],
+            learn_nonlinear_geometric_constant=config["model"]["learn_nonlinear_geometric_constant"],
+            learn_nonlinear_energy_filter=config["model"]["learn_nonlinear_energy_filter"],
+            true_string_parameters=config["model"]["true_string_parameters"]
         )
 
     else:
 
         model = load_baseline_model(
-            architecture=baseline_architecture,
+            architecture=config["general_architecture"]["baseline_architecture"],
             input_dim=temporal_window_size,
-            hyperparameters=baseline_hyperparameters
+            hyperparameters=config["general_architecture"]["hyperparameters"]
         )
         
 

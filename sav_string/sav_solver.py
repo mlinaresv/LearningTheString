@@ -1,3 +1,4 @@
+import time
 import torch
 import types
 import numpy as np
@@ -24,15 +25,31 @@ class SAVSolver():
 
     def g(self, q, J0):
         """ Compute the interconnection matrix for the auxiliary variable. """
-        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q)
-        Fnl = self.model.Fnl(q)
+        if self.lib_str == 'numpy':
+            Enl = self.model.Enl(q)
+            Fnl = self.model.Fnl(q)
+        else:
+            Enl, vjp_fn = torch.func.vjp(self.model.Enl, q)
+            Fnl = vjp_fn(torch.ones_like(Enl))[0]
+
         return J0 * Fnl / (self.lib.sqrt(2 * Enl + self.C0 + self.Num_eps))
     
 
     def g_mod(self, q, p, r, M):
-        Enl = self.model.Enl(q) if self.lib_str == 'numpy' else self.model.Enl(q)
+
+        with torch.no_grad():
+            Enl = self.model.Enl(q) 
+
         self.epsilon = r - self.lib.sqrt(2 * Enl + self.C0 + self.Num_eps)
-        return - self.lambda0 * self.epsilon * self.lib.sign(p) / (M * (self.lib.sum(self.lib.abs(p)) + self.Num_eps))
+
+        if self.lib_str == 'numpy':
+            sum_abs_p = self.lib.sum(np.abs(p), axis=-1, keepdims=True)
+            sign = np.sign(p) 
+        else:
+            sum_abs_p = p.abs().sum(dim=-1, keepdim=True)
+            sign = p.sign()
+
+        return - self.lambda0 * self.epsilon * sign / (M * (sum_abs_p + self.Num_eps))
 
     
     def time_step(self, qlast, plast, rn, unow, excitation_position, train=False):
@@ -41,15 +58,18 @@ class SAVSolver():
         J0, M, Rmid = self.model.build_matrices()
         
         # qlast = q^{n-1/2}; qnow = q^{n+1/2}; rn=rn; unow=u^{n+1/2}.
-        qnext = qlast + self.dt * (J0 * (M * plast))
+        M_plast = M * plast
+        qnext = qlast + self.dt * (J0 * (M_plast))
+
+        qmid = 0.5 * (qnext + qlast)
 
         if rn is None:
-            rn = torch.sqrt(self.model.Enl((qnext + qlast) / 2) + 1e-14)
+            rn = torch.sqrt(self.model.Enl(qmid) + 1e-14)
         
         # Estimation of the auxiliary variable during training.model = String(sr=sr, **string_parameters)
         gn = self.g(qnext, J0)
         if not train:
-            gn += self.g_mod((qnext + qlast) / 2, plast, rn, M)
+            gn += self.g_mod(qmid, plast, rn, M)
 
         # Define an intermediate quantity
         A0_inv = 2 * self.dt / ((2 / M + Rmid * self.dt) + self.Num_eps)
@@ -64,8 +84,8 @@ class SAVSolver():
         Bn_p = (
             (1.0 / self.dt - self.dt / 4.0 * gn * (M * gn))
             * plast
-            - 0.5 * Rmid * (M * plast)
-            - self.model.Rsv_op(M * plast)
+            - 0.5 * Rmid * (M_plast)
+            - self.model.Rsv_op(M_plast)
         )
 
         # Right hand-side of the momentum update.
@@ -84,9 +104,13 @@ class SAVSolver():
         correction = (self.dt / 4.0) * A0inv_g * correction_term / (denom + self.Num_eps)
         pnext = (1 / M) * (tmp - correction)
 
-        rnext_term_ = M * (pnext + plast) / 2
-        rnext_term = self.lib.dot(gn, rnext_term_) if self.lib_str == 'numpy' else torch.einsum('... j, ... j -> ...', gn, rnext_term_).unsqueeze(1)
-        rnext = rn + self.dt * rnext_term
+        if not train:
+            rnext_term_ = M * (pnext + plast) / 2
+            rnext_term = self.lib.dot(gn, rnext_term_) if self.lib_str == 'numpy' else torch.einsum('... j, ... j -> ...', gn, rnext_term_).unsqueeze(1)
+            rnext = rn + self.dt * rnext_term
+        else:
+            rnext = None
+            
         return qnext, pnext, rnext
 
 

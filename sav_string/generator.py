@@ -8,7 +8,7 @@ from joblib import delayed
 from sav_string.sav_solver import SAVSolver
 from sav_string.utils.joblib import Parallel
 from sav_string.fd_string_model import String
-from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.utils.string_ import listen_to_a_trajectory
 
 
 

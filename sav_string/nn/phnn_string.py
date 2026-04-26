@@ -93,7 +93,7 @@ class PHNNString(nn.Module):
     @property
     def rho(self):
         if self.learn_linear_constants:
-            return torch.abs(self.rho_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['rho']))
+            return torch.exp(self.rho_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['rho']))
         else:
             return torch.tensor(float(self.true_string_parameters['rho']))
     
@@ -102,12 +102,12 @@ class PHNNString(nn.Module):
         if not self.learn_linear_constants or not self.learn_radius_coefficient:
             return torch.tensor(float(self.true_string_parameters['Ra']))    
         else:
-            return torch.abs(self.Ra_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['Ra']))
+            return torch.exp(self.Ra_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['Ra']))
         
     @property
     def E(self):
         if self.learn_linear_constants:
-            return torch.abs(self.E_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['E']))
+            return torch.exp(self.E_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['E']))
         else:
             return torch.tensor(float(self.true_string_parameters['E']))
         
@@ -116,39 +116,39 @@ class PHNNString(nn.Module):
         if not self.learn_linear_constants or not self.learn_tension_coefficient:
             return torch.tensor(float(self.true_string_parameters['T']))  
         else:
-            return torch.abs(self.T_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['T']))
+            return torch.exp(self.T_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['T']))
     
     @property
     def eta0(self):
         if self.learn_dissipation_constants:
-            return torch.abs(self.eta0_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta0']))
+            return torch.exp(self.eta0_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta0']))
         else:
             return torch.tensor(float(self.true_string_parameters['eta0']))
     
     @property
     def eta1(self):
         if self.learn_dissipation_constants:
-            return torch.abs(self.eta1_) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta1']))
+            return torch.exp(self.eta1_ - 1) * 10 ** compute_order_of_magnitude(float(self.true_string_parameters['eta1']))
         else:
             return torch.tensor(float(self.true_string_parameters['eta1']))
 
     @property
     def rhol(self):
-        return torch.abs(self.rho) * torch.pi * (torch.abs(self.Ra))**2
+        return self.rho * torch.pi * (self.Ra)**2
 
     @property
     def I(self):
-        return torch.pi * (torch.abs(self.Ra))**4 / 4
+        return torch.pi * (self.Ra)**4 / 4
 
     @property
     def EnlGeomConst(self):
-        return (torch.abs(self.E) * torch.pi * (self.Ra)**2 - torch.abs(self.T)) / 8
+        return (self.E * torch.pi * (self.Ra)**2 - self.T) / 8
 
 
     def build_matrices(self):
         J0 = torch.tensor(1 / self.h)
-        M = self.h / (torch.abs(self.rhol))
-        Rmid = (2 * torch.abs(self.rhol) * torch.abs(self.eta0) / self.h)
+        M = self.h / (self.rhol)
+        Rmid = (2 * self.rhol * self.eta0 / self.h)
         return J0, M, Rmid
 
     
@@ -173,7 +173,7 @@ class PHNNString(nn.Module):
         else:
             d2xq = self.d2xq_op(q)
             d4xq = self.d2xq_op(d2xq)
-            return (- self.h * torch.abs(self.T) * d2xq) + (self.h * torch.abs(self.E) * torch.abs(self.I) * d4xq)
+            return (- self.h * self.T * d2xq) + (self.h * self.E * self.I * d4xq)
     
 
     def Ek(self, p):
@@ -182,13 +182,13 @@ class PHNNString(nn.Module):
 
     def Ep_tension(self, q):
         d2xq = self.d2xq_op(q)
-        Kp_tension = (self.h * torch.abs(self.T) * d2xq)
+        Kp_tension = (self.h * self.T * d2xq)
         return 0.5 * torch.einsum('... j, ... j -> ...', q, Kp_tension)
 
     def Ep_young(self, q):
         d2xq = self.d2xq_op(q)
         d4xq = self.d2xq_op(d2xq)
-        Kp_young =  (self.h * torch.abs(self.E) * torch.abs(self.I) * d4xq)
+        Kp_young =  (self.h * self.E * self.I * d4xq)
         return 0.5 * torch.einsum('... j, ... j -> ...', q, Kp_young)
 
     def Enl(self, q):
@@ -200,7 +200,7 @@ class PHNNString(nn.Module):
         
         elif self.learn_nonlinear_energy == 'kernel':
             energy = self.Enl_(q)
-            return self.h * torch.abs(self.EnlGeomConst) * energy
+            return self.h * self.EnlGeomConst * energy
         
         else:
             dxq = torch.zeros((*q.shape[:-1], self.N + 1), device=q.device)
@@ -209,7 +209,7 @@ class PHNNString(nn.Module):
             dxq[..., 1:] -= q
             dxq /= self.h
             energy_sum = torch.sum((dxq)**4, axis=-1, keepdim=True)
-            return self.h * torch.abs(self.EnlGeomConst) * energy_sum
+            return self.h * self.EnlGeomConst * energy_sum
     
     def Fnl(self, q):
 
@@ -226,12 +226,12 @@ class PHNNString(nn.Module):
             dxq /= self.h
             dxq3 = dxq**3
             Dmindxq3 = - 1 / self.h * (dxq3[..., 1:] - dxq3[..., :-1])
-            return 4 * self.h * torch.abs(self.EnlGeomConst) * Dmindxq3
+            return 4 * self.h * self.EnlGeomConst * Dmindxq3
     
     
     def Rsv_op(self, v):
         d2xq = self.d2xq_op(v)
-        return - 2 * torch.abs(self.rhol) * torch.abs(self.eta1) * d2xq / self.h
+        return - 2 * self.rhol * self.eta1 * d2xq / self.h
     
     def G(self, excitation_position):
         batch_size = excitation_position.shape[0]

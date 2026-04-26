@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from sav_string.nn.baseline import BaselineFlow
 from sav_string.nn.phnn_string import PHNNString
 from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.utils.string import listen_to_a_trajectory
+from sav_string.utils.string_ import listen_to_a_trajectory
 from sav_string.utils.loader import load_configuration, load_learnable_objects
 from sav_string.nn.utils.inference_during_training import inference_during_training
 

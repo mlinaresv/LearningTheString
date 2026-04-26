@@ -7,9 +7,10 @@ import seaborn as sns
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
-from sav_string.nn.utils.inference_during_training import compute_parameters_errors
+from sav_string.sav_solver import SAVSolver
+from sav_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states
 from sav_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
-from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects
+from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model
 
 
 def create_results_table(results_path, type_of_result='inference'):
@@ -103,11 +104,11 @@ def create_results_table(results_path, type_of_result='inference'):
 
             elif type_of_result == 'parameters_errors':
 
-                val_dataset = load_val_dataset(config)
+                test_dataset = load_test_dataset(config)
 
                 model, _, _ = load_learnable_objects(
                     config=config,
-                    dataset=val_dataset,
+                    dataset=test_dataset,
                     device=device,
                     load_model_dictionary=True,
                     checkpoint_file=checkpoint_file
@@ -124,7 +125,7 @@ def create_results_table(results_path, type_of_result='inference'):
 
     if type_of_result == 'inference':
 
-        num_workers = 2
+        num_workers = 1
         torch.set_num_threads(1)
 
         results = Parallel(n_jobs=num_workers)(
@@ -217,7 +218,7 @@ def process_one_model(args):
         device
     ) = args
 
-    val_dataset = load_val_dataset(config)
+    test_dataset = load_test_dataset(config)
 
     train_path = os.path.join(results_path, train_folder)
     init_path = os.path.join(train_path, init_folder)
@@ -238,10 +239,10 @@ def process_one_model(args):
     try:
         q_trajectory, p_trajectory, next_observation, model = infer_a_model(
             results_path=results_path,
-            n_trajectories_infer=12,
+            n_trajectories_infer=config["data"]["test_number_of_trajectories"],
             test_audio_duration=2.0,
             train_dataset=train_dataset,
-            val_dataset=val_dataset,
+            val_dataset=test_dataset,
             checkpoint_file=checkpoint_file,
             device=device
         )
@@ -250,7 +251,7 @@ def process_one_model(args):
             q_trajectory=q_trajectory,
             p_trajectory=p_trajectory,
             next_observation=next_observation,
-            dataset=val_dataset,
+            dataset=test_dataset,
             model=model
         )
 
@@ -261,7 +262,7 @@ def process_one_model(args):
         print(f"Failed for {train_folder}/{init_folder}: {e}")
         return None
 
-    del train_dataset, val_dataset
+    del train_dataset, test_dataset
     gc.collect()
 
     return {
@@ -271,3 +272,121 @@ def process_one_model(args):
         "mse": mse_inference_error.item(),
         "rmse": relative_mse.item()
     }
+
+
+
+def create_amplitude_error_with_respect_to_time(
+        
+    phnn_results_path: str,
+    phnn_n_traj_train: str,
+    phnn_initialization_id: str,
+    baseline_results_path: str,
+    baseline_n_traj_train: str,
+    baseline_initialization_id: str,
+    sr: int
+
+):
+    
+    # Load the datasets. 
+    phnn_config = load_configuration(f'{phnn_results_path}/config.yaml')
+    baseline_config = load_configuration(f'{baseline_results_path}/config.yaml')
+    train_dataset = load_train_dataset(phnn_config, train_n_traj=int(phnn_n_traj_train))
+    test_dataset = load_test_dataset(phnn_config)
+
+    # Get the reference trajectory.
+    reference_trajectory, exc_pos = test_dataset.get_trajectory(2)
+
+    # Determine the checkpoint files for the models.
+    phnn_checkpoint_file = f'{phnn_results_path}/{phnn_n_traj_train}_traj/{phnn_initialization_id}/best_model.pth'
+    baseline_checkpoint_file = f'{baseline_results_path}/{baseline_n_traj_train}_traj/{baseline_initialization_id}/best_model.pth'
+
+    # Decide the device.
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # Baseline model.
+    baseline_model = load_model(
+        config=baseline_config,
+        temporal_window_size=train_dataset.temporal_window_size,
+        load_model_dictionary=True,
+        checkpoint_file=baseline_checkpoint_file
+    ).to(device)
+    # PHNN-String model.
+    phnn_model = load_model(
+        config=phnn_config,
+        temporal_window_size=train_dataset.temporal_window_size,
+        load_model_dictionary=True,
+        checkpoint_file=phnn_checkpoint_file
+    ).to(device)
+
+    # For both the baseline and the PHNNString model.
+    #print('Inferring the PHNN-String trajectory!')
+    #q_trajectory_phnn, _, _, model = infer_a_model(
+    #    results_path=phnn_results_path,
+    #    n_trajectories_infer=1,
+    #    test_audio_duration=2.0,
+    #    train_dataset=train_dataset,
+    #    val_dataset=test_dataset,
+    #    checkpoint_file=phnn_checkpoint_file,
+    #    device=device
+    #)
+
+    print('Inferring the baseline trajectory!')
+    q_trajectory_baseline, _, _ = infer_from_states(
+        state=reference_trajectory[0:1].float().to(device),
+        u=reference_trajectory[0:, -1].float().to(device),
+        exc_pos=exc_pos.float(),
+        dataset=test_dataset,
+        model=baseline_model,
+        solver=SAVSolver(model=phnn_model, sr=sr, lib='torch'),
+        duration=2.0,
+        device=device
+    )
+
+    # Obtain the reference trajectory.
+    scale, T = 1e3, 200e-3
+    extent = [0, 1.1, 0, 200]
+    q_trajectory_baseline = q_trajectory_baseline[0, :int(T * sr)]
+    q_trajectory_reference = reference_trajectory[0, :int(T * sr), :test_dataset.n].cpu().numpy()
+
+    vmin, vmax = np.min(q_trajectory_reference * scale), np.max(q_trajectory_reference * scale)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 8), sharex=True, sharey=True, constrained_layout=True)
+
+    ims = []
+
+    ims.append(axes[0].imshow(q_trajectory_reference * scale, aspect='auto', origin='lower', extent=extent,
+                            cmap='viridis', vmin=vmin, vmax=vmax))
+    axes[0].set_title("Reference trajectory")
+    axes[0].set_xlabel("Position along string (m)")
+    axes[0].set_ylabel("Time (ms)")
+
+    ims.append(axes[1].imshow(q_trajectory_baseline * scale, aspect='auto', origin='lower', extent=extent,
+                            cmap='viridis', vmin=vmin, vmax=vmax))
+    axes[1].set_title("Baseline trajectory")
+    axes[1].set_xlabel("Position along string (m)")
+
+    #ims.append(axes[2].imshow(model_trajectory, aspect='auto', origin='lower',
+    #                        cmap='viridis', vmin=vmin, vmax=vmax))
+    #axes[2].set_title("Model trajectory")
+
+    #ims.append(axes[3].imshow(baseline_error, aspect='auto', origin='lower',
+    #                        cmap='coolwarm', vmin=-err_max, vmax=err_max))
+    #axes[3].set_title("Baseline error")
+
+    #ims.append(axes[4].imshow(model_error, aspect='auto', origin='lower',
+    #                        cmap='coolwarm', vmin=-err_max, vmax=err_max))
+    #axes[4].set_title("Model error")
+    
+
+    # --- Shared colorbars ---
+    # One for amplitudes (first 3)
+    cbar1 = fig.colorbar(ims[0], ax=axes[:2], orientation='vertical')
+    cbar1.set_label("Amplitude (×10⁻³)")
+
+    # One for errors (last 2)
+    #cbar2 = fig.colorbar(ims[3], ax=axes[3:], orientation='vertical')
+    #cbar2.set_label("Error")
+
+    #plt.tight_layout()
+    plt.savefig('amplitude_error_with_respect_to_time.pdf')
+
+    

@@ -122,33 +122,49 @@ class H5TimeShiftDataset(Dataset):
 
         if not self.lazy_access:
 
-            # Select from the already loaded dataset.
-            state = self.state_data[n_idx, t_idx - self.temporal_window_size + 1: t_idx + self.n_steps]
-            y = self.state_data[n_idx, t_idx + self.n_steps, :-2]
+            # Load the states (inputs), the outputs and the excitation position.
+            observation = self.state_data[n_idx, t_idx - self.temporal_window_size + 1: t_idx + self.n_steps + 1]
+            state = observation[:self.temporal_window_size]
+            y = observation[1:]
             exc_position = self.exc_data[n_idx]
-
-            # Get the position
-            q = self.state_data[..., :self.n] if not self.estimate_positions else state[..., self.index]
-            # Get the momentum.
-            p = self.state_data[..., self.n:self.n * 2]
+            
             # Get the control.
-            u = self.state_data[..., -1].unsqueeze(-1)
-            # Get the output.
-            if self.estimate_positions:
-                y = y[..., :self.n]
+            u = state[..., -1, -1].unsqueeze(-1)
 
             if not self.estimate_positions:
 
+                if self.temporal_window_size == 1:
+                    state = state[0]
+                    y = y[..., :-2]
+
+                # Get the position.
+                q = state[..., :self.n]
+                
+                # Get the momentum.
+                p = state[..., self.n:self.n * 2]
+
                 if not self.estimate_sav:
-                    r = self.state_data[..., -2].unsqueeze(-1)
+                    r = state[-2].unsqueeze(-1)
                 else:
-                    r = (self.state_data[n_idx, t_idx + 1, :self.n] + self.state_data[n_idx, t_idx, :self.n]) / 2
+                    qnext = self.state_data[n_idx, t_idx + 1, :self.n]
+                    r = (q + qnext) / 2
 
                 # Returns the (states(t), sav(t), control(t), exciting position), states(t+1)
-                return (q, p, r, u, exc_position), y 
+                return (q, p, r, u, exc_position), y
             
             else:
-                return (q, p, u, exc_position), y
+
+                # Get the position.
+                q = state[..., self.index]
+
+                # The output is only the position at a given index.
+                y = y[..., self.index]
+
+                if self.normalize:                
+                    q = (q - self.mean_pos) / self.std_pos
+                    y = (y - self.mean_pos) / self.std_pos
+
+                return (q, u, exc_position), y
 
 
         else:
@@ -198,6 +214,7 @@ class H5TimeShiftDataset(Dataset):
                     y = (y - self.mean_pos) / self.std_pos
 
                 return (q, u, exc_position), y
-
-
-        
+            
+    
+    def get_trajectory(self, i):
+        return torch.from_numpy(self.file["states"][i]).unsqueeze(0), torch.from_numpy(self.file["exc"][i]).unsqueeze(0)  
