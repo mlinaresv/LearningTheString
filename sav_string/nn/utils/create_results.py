@@ -7,10 +7,12 @@ import seaborn as sns
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
+from torch.utils.data import DataLoader
 from sav_string.sav_solver import SAVSolver
-from sav_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states
+from sav_string.fd_string_model import String
+from sav_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error
 from sav_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
-from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model
+from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
 
 
 def create_results_table(results_path, type_of_result='inference'):
@@ -298,7 +300,7 @@ def create_amplitude_error_with_respect_to_time(
 
     # Determine the checkpoint files for the models.
     phnn_checkpoint_file = f'{phnn_results_path}/{phnn_n_traj_train}_traj/{phnn_initialization_id}/best_model.pth'
-    baseline_checkpoint_file = f'{baseline_results_path}/{baseline_n_traj_train}_traj/{baseline_initialization_id}/best_model.pth'
+    baseline_checkpoint_file = f'{baseline_results_path}/{baseline_n_traj_train}_traj/{baseline_initialization_id}/checkpoint.pth'
 
     # Decide the device.
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -330,9 +332,10 @@ def create_amplitude_error_with_respect_to_time(
     #)
 
     print('Inferring the baseline trajectory!')
+    scale, T = 1e3, 200e-3
     q_trajectory_baseline, _, _ = infer_from_states(
         state=reference_trajectory[0:1].float().to(device),
-        u=reference_trajectory[0:, -1].float().to(device),
+        u=reference_trajectory[0:, :int(T * sr), -1].float().to(device),
         exc_pos=exc_pos.float(),
         dataset=test_dataset,
         model=baseline_model,
@@ -342,7 +345,6 @@ def create_amplitude_error_with_respect_to_time(
     )
 
     # Obtain the reference trajectory.
-    scale, T = 1e3, 200e-3
     extent = [0, 1.1, 0, 200]
     q_trajectory_baseline = q_trajectory_baseline[0, :int(T * sr)]
     q_trajectory_reference = reference_trajectory[0, :int(T * sr), :test_dataset.n].cpu().numpy()
@@ -390,3 +392,52 @@ def create_amplitude_error_with_respect_to_time(
     plt.savefig('amplitude_error_with_respect_to_time.pdf')
 
     
+
+def create_energy_analysis_results(
+    results_path: str,
+    n_train_trajectories: int, 
+    best_model: bool
+):
+
+    # Load the checkpoint file.
+    config = load_configuration(f'{results_path}/config.yaml')
+    dataset = load_test_dataset(config)
+    test_loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    for initialization_id in os.listdir(f'{results_path}/{n_train_trajectories}_traj'):
+
+        checkpoint_file = load_checkpoint_file(results_path, n_train_trajectories, initialization_id, best_model)
+
+        # Load the model.
+        model = load_model(
+            config=config,
+            temporal_window_size=dataset.temporal_window_size,
+            load_model_dictionary=True,
+            checkpoint_file=checkpoint_file
+        ).to(device)
+
+        # Create the q points interval.
+        total_energy_model = 0.0
+        max_energy = 0.0
+
+        for i, (x_batch, _) in tqdm(enumerate(test_loader)):
+            
+            q_points, p_points = x_batch[0], x_batch[1]
+
+            with torch.no_grad():
+                predicted_energy_values = model.hamiltonian(q_points.to(device), p_points.to(device)).cpu().numpy()
+
+            # Ground truth string parameters.
+            gt_model = String(sr=88200)
+            gt_energy = gt_model.hamiltonian(q_points.numpy(), p_points.numpy())
+
+            total_energy_model += np.abs(predicted_energy_values - gt_energy)
+
+            if np.max(gt_energy) < max_energy:
+                max_energy = max_energy
+            else:
+                max_energy = np.max(gt_energy)
+                print(f'{max_energy:.3e}')
+
+        print(f'Model {initialization_id} | Loss: {total_energy_model / dataset.N / max_energy:.3e}')

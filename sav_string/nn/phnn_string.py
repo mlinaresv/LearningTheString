@@ -239,6 +239,10 @@ class PHNNString(nn.Module):
         positions = excitation_position.long().squeeze()
         G_val[torch.arange(batch_size), positions, 0] = 1
         return G_val 
+    
+
+    def hamiltonian(self, q, p):
+        return self.Ek(p) + self.Ep_tension(q) + self.Ep_young(q) + self.Enl(q)
 
 
     

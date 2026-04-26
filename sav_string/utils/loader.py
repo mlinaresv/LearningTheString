@@ -10,6 +10,20 @@ from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow, TransformerStateEstimator
 
 
+def load_checkpoint_file(
+    results_path: str, 
+    n_train_trajectories: int,
+    initialization_id: int,
+    best_model: bool
+):
+    
+    # Base checkpoint file.
+    base_directory = f'{results_path}/{str(n_train_trajectories)}_traj/{str(initialization_id)}'
+
+    return f'{base_directory}/checkpoint.pth' if not best_model else f'{base_directory}/best_model.pth'
+
+
+
 def create_train_validation_dataset(directory, filename, ratio=0.8):
     with h5py.File(f"{directory}/{filename}.h5", "r") as f:
 

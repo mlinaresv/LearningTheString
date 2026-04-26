@@ -33,7 +33,7 @@ def infer_from_states(
     std_pos=None
 ):
 
-        # Obtain the position, momentum and control.
+    # Obtain the position, momentum and control.  
     q0 = state[..., :dataset.n] if not dataset.estimate_positions else state[..., dataset.index]
     p0 = state[..., dataset.n: dataset.n * 2] if not dataset.estimate_positions else None
     
