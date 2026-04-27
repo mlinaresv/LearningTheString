@@ -8,6 +8,7 @@ import librosa.display
 import matplotlib.figure
 from beartype import beartype
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 from sav_string.sav_solver import SAVSolver
 from sav_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
@@ -215,20 +216,27 @@ def make_spectrogram_image(
     assert len(ylim) == 2, f'"ylim" variable must be of length 2' 
 
     # STFT
-    S = librosa.stft(signal, n_fft=8192, hop_length=1024)
-    S_db = librosa.amplitude_to_db(abs(S))
+    S = librosa.stft(signal, n_fft=8192, hop_length=512, win_length = 8192)
+    S_db = librosa.amplitude_to_db(abs(S), ref=np.max)
 
-    fig = plt.figure()
-    librosa.display.specshow(
+    fig, ax = plt.subplots()
+    im = librosa.display.specshow(
         S_db, 
         sr=sr, 
+        hop_length=512,
         x_axis='time', 
         y_axis='hz',
         vmin=vmin,
-        vmax=vmax)
-    plt.colorbar(format='%+2.0f dB')
+        vmax=vmax,
+        cmap='inferno',
+        ax=ax)
+    
+    ax.set_ylim(ylim[0], ylim[1])
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y/1000:.1f}"))
+    ax.set_ylabel("Frequency (kHz)")
+    plt.colorbar(im, format='%+2.0f dB')
     plt.title("Spectrogram")
-    plt.ylim(ylim[0], ylim[1])
+    
 
     return fig
 
