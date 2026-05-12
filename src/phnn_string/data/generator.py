@@ -1,13 +1,11 @@
 import os
-import sys
 import h5py
 import random
-sys.path.append('/u/anasynth/linares/LearningTheString')
 import numpy as np
 from joblib import delayed
-from phnn_string.sav_solver import SAVSolver
 from phnn_string.utils.joblib import Parallel
-from phnn_string.fd_string_model import String
+from phnn_string.data.sav_solver import SAVSolver
+from phnn_string.data.fd_string_model import String
 from phnn_string.utils.string_ import listen_to_a_trajectory
 
 
@@ -80,7 +78,7 @@ def generate_one_trajectory(
     assert len(pluck_amplitude_interval) == 2, f'"pluck_amplitude_interval" must have length 2'
     assert isinstance(duration, int) or isinstance(duration, float), f'"duration" variable must be of type int or float'
     assert isinstance(trajectory_index, int), f'"trajectory_index" variable must be of type int'
-    assert isinstance(audio_directory, str), f'"audio_directory" variable must be of type int'
+    assert isinstance(audio_directory, str) or audio_directory is None, f'"audio_directory" variable must be of type int'
 
 
     # Load the guitar string object.
@@ -227,13 +225,15 @@ def generate_string_database(
     assert isinstance(n_jobs, int), f'"n_jobs" variable must be of type int'
     assert isinstance(save_directory, str), f'"save_directory" variable must be of type str'
     assert isinstance(filename, str), f'"filename" variable must be of type str' 
-    assert isinstance(audio_directory, str), f'"audio_directory" variable must be of type str'
+    assert isinstance(audio_directory, str) or audio_directory is None, f'"audio_directory" variable must be of type str'
 
 
     # Define the numerical solver.
     model = String(sr=sr)
     dt = 1 / sr
     t = np.arange(int(duration / dt) + 1) * dt
+
+    os.makedirs(save_directory, exist_ok=True)
 
 
     # Iterate over the type of data and the number of trajectories for that type of data.

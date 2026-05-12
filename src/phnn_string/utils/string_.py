@@ -1,8 +1,12 @@
 import os
 import h5py
+import librosa
+import matplotlib
 import numpy as np
+from beartype import beartype
 import matplotlib.pyplot as plt
 from scipy.io.wavfile import write
+from matplotlib.ticker import FuncFormatter
 from matplotlib.animation import FuncAnimation
 
 
@@ -49,6 +53,64 @@ def listen_to_a_trajectory(p_trajectory, sr, filename):
     
     # Return the sampling rate, the wav scaled audio and the tensorboard audio.
     return sr, wav_scaled, normalized_audio
+
+
+
+@beartype
+def make_spectrogram_image(
+        
+        signal: np.ndarray, 
+        sr: int,
+        ylim: list | tuple = (0, 10000),
+        vmin: float = -100,
+        vmax: float = 0,
+        ref = None
+        
+    ) -> matplotlib.figure.Figure:
+
+    """
+    Returns a matplotlib figure of a spectrogram from a signal sampled at a given sampling rate.
+
+    Parameters
+    ----------
+    signal: np.ndarray
+        1D float array.
+    sr: int
+        Sample rate from the signal.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Spectogram figure.
+    """
+
+    assert len(ylim) == 2, f'"ylim" variable must be of length 2' 
+
+    # STFT
+    S = librosa.stft(signal, n_fft=8192, hop_length=512, win_length = 8192)
+    S_db = librosa.amplitude_to_db(abs(S), ref=ref)
+
+    fig, ax = plt.subplots()
+    im = librosa.display.specshow(
+        S_db, 
+        sr=sr, 
+        hop_length=512,
+        x_axis='time', 
+        y_axis='hz',
+        vmin=vmin,
+        vmax=vmax,
+        cmap='inferno',
+        ax=ax)
+    
+    ax.set_ylim(ylim[0], ylim[1])
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y/1000:.1f}"))
+    ax.set_ylabel("Frequency (kHz)")
+    plt.colorbar(im, format='%+2.0f dB')
+    plt.title("Spectrogram")
+    
+
+    return fig
+
 
 
 def save_as_hdf5(state, exc, directory, filename):
