@@ -30,3 +30,9 @@ sav_string/runs/*
 # Ignore the while_at_sintef/ folder.
 while_at_sintef/*
 test_sav_string/*
+
+# Python Jupyter Notebooks.
+*.ipynb
+
+# Ignore the dependencies installations.
+src/learningthestring.egg-info/*
