@@ -9,13 +9,13 @@ import matplotlib.figure
 from beartype import beartype
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
-from sav_string.sav_solver import SAVSolver
-from sav_string.nn.phnn_string import PHNNString
+from phnn_string.sav_solver import SAVSolver
+from phnn_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.nn.baseline import TransformerStateEstimator
-from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
-from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow
+from phnn_string.nn.utils.dataset import H5TimeShiftDataset
+from phnn_string.nn.baseline import TransformerStateEstimator
+from phnn_string.nn.nonlinear_operators import StateEstimator, StateDecoder
+from phnn_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow
 
 
 
@@ -193,7 +193,8 @@ def make_spectrogram_image(
         sr: int,
         ylim: list | tuple = (0, 10000),
         vmin: float = -100,
-        vmax: float = 0
+        vmax: float = 0,
+        ref = None
         
     ) -> matplotlib.figure.Figure:
 
@@ -217,7 +218,7 @@ def make_spectrogram_image(
 
     # STFT
     S = librosa.stft(signal, n_fft=8192, hop_length=512, win_length = 8192)
-    S_db = librosa.amplitude_to_db(abs(S), ref=np.max)
+    S_db = librosa.amplitude_to_db(abs(S), ref=ref)
 
     fig, ax = plt.subplots()
     im = librosa.display.specshow(

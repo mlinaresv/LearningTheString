@@ -5,10 +5,10 @@ import random
 sys.path.append('/u/anasynth/linares/LearningTheString')
 import numpy as np
 from joblib import delayed
-from sav_string.sav_solver import SAVSolver
-from sav_string.utils.joblib import Parallel
-from sav_string.fd_string_model import String
-from sav_string.utils.string_ import listen_to_a_trajectory
+from phnn_string.sav_solver import SAVSolver
+from phnn_string.utils.joblib import Parallel
+from phnn_string.fd_string_model import String
+from phnn_string.utils.string_ import listen_to_a_trajectory
 
 
 

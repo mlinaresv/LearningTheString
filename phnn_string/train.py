@@ -5,19 +5,19 @@ import torch.nn as nn
 from beartype import beartype
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
-from sav_string.nn.baseline import BaselineFlow
-from sav_string.nn.phnn_string import PHNNString
+from phnn_string.nn.baseline import BaselineFlow
+from phnn_string.nn.phnn_string import PHNNString
 from torch.utils.tensorboard import SummaryWriter
 from librosa.util.exceptions import ParameterError
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.utils.string_ import listen_to_a_trajectory
-from sav_string.nn.baseline import MLPNextValue, ConvSequenceModel, TransformerStateEstimator
-from sav_string.nn.nonlinear_operators import StateEstimator, StateDecoder
-from sav_string.utils.losses import (reconstruction_loss, 
+from phnn_string.nn.utils.dataset import H5TimeShiftDataset
+from phnn_string.utils.string_ import listen_to_a_trajectory
+from phnn_string.nn.baseline import MLPNextValue, ConvSequenceModel, TransformerStateEstimator
+from phnn_string.nn.nonlinear_operators import StateEstimator, StateDecoder
+from phnn_string.utils.losses import (reconstruction_loss, 
                                      latent_estimation_consistency_loss, 
                                      next_momentum_loss, 
                                      energy_losses)
-from sav_string.nn.utils.inference_during_training import (inference_during_training, 
+from phnn_string.nn.utils.inference_during_training import (inference_during_training, 
                                                            make_spectrogram_image, 
                                                            compute_non_linear_energy_error, 
                                                            write_constant_parameters_errors, 

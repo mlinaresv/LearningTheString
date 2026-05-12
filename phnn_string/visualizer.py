@@ -4,8 +4,8 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.fd_string_model import String
+from phnn_string.nn.utils.dataset import H5TimeShiftDataset
+from phnn_string.fd_string_model import String
 
 
 def get_energy_quotients_from_dataset(

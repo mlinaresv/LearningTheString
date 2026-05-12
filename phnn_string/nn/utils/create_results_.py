@@ -8,11 +8,11 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from torch.utils.data import DataLoader
-from sav_string.sav_solver import SAVSolver
-from sav_string.fd_string_model import String
-from sav_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error, make_spectrogram_image
-from sav_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
-from sav_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
+from phnn_string.sav_solver import SAVSolver
+from phnn_string.fd_string_model import String
+from phnn_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error, make_spectrogram_image
+from phnn_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
+from phnn_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
 
 
 def create_results_table(results_path, type_of_result='inference'):
@@ -286,108 +286,20 @@ def process_one_model(args):
         "rmse": relative_mse.item()
     }
 
-
-
-def create_amplitude_error_with_respect_to_time(
-        
-    phnn_results_path: str,
-    phnn_n_traj_train: str,
-    phnn_initialization_id: str,
-    sr: int
-
-):
-    
-    # Load the datasets. 
-    phnn_config = load_configuration(f'{phnn_results_path}/config.yaml')
-    train_dataset = load_train_dataset(phnn_config, train_n_traj=int(phnn_n_traj_train))
-    test_dataset = load_test_dataset(phnn_config)
-
-    # Get the reference trajectory.
-    reference_trajectory, exc_pos = test_dataset.get_trajectory(2)
-
-    # Determine the checkpoint files for the models.
-    phnn_checkpoint_file = f'{phnn_results_path}/{phnn_n_traj_train}_traj/{phnn_initialization_id}/best_model.pth'
-
-    # Decide the device.
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # PHNN-String model.
-    phnn_model = load_model(
-        config=phnn_config,
-        temporal_window_size=train_dataset.temporal_window_size,
-        load_model_dictionary=True,
-        checkpoint_file=phnn_checkpoint_file
-    ).to(device)
-
-    # For both the baseline and the PHNNString model.
-    scale, T = 1e3, 200e-3
-    print('Inferring the PHNN-String trajectory!')
-    q_trajectory_phnn, _, _ = infer_from_states(
-        state=reference_trajectory[0:1].float().to(device),
-        u=reference_trajectory[0:, :int(T * sr), -1].float().to(device),
-        exc_pos=exc_pos.float(),
-        dataset=test_dataset,
-        model=phnn_model,
-        solver=SAVSolver(model=phnn_model, sr=sr, lib='torch'),
-        duration=2.0,
-        device=device
-    )
-
-    # Obtain the reference trajectory.
-    extent = [0, 1.1, 0, 200]
-    q_trajectory_phnn_ = q_trajectory_phnn[0, :int(T * sr)].cpu().numpy()
-    q_trajectory_reference_ = reference_trajectory[0, :int(T * sr), :test_dataset.n].cpu().numpy()
-    phnn_error = q_trajectory_reference_ - q_trajectory_phnn_
-
-
-    vmin, vmax = np.min(q_trajectory_reference_ * scale), np.max(q_trajectory_reference_ * scale)
-    err_max = np.max(np.abs(phnn_error))
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 8), sharex=True, sharey=True, constrained_layout=True)
-
-    ims = []
-
-    ims.append(axes[0].imshow(q_trajectory_reference_ * scale, aspect='auto', origin='lower', extent=extent,
-                            cmap='viridis', vmin=vmin, vmax=vmax))
-    axes[0].set_title("Reference trajectory")
-    axes[0].set_xlabel("Position along string (m)")
-    axes[0].set_ylabel("Time (ms)")
-
-    ims.append(axes[1].imshow(q_trajectory_phnn_ * scale, aspect='auto', origin='lower', extent=extent,
-                            cmap='viridis', vmin=vmin, vmax=vmax))
-    axes[1].set_title("PHNNString trajectory")
-    axes[1].set_xlabel("Position along string (m)")
-
-    ims.append(axes[2].imshow(phnn_error, aspect='auto', origin='lower', extent=extent,
-                            cmap='coolwarm', vmin=-err_max, vmax=err_max))
-    axes[2].set_title("PHNNString error")
-    axes[2].set_xlabel("Position along string (m)")
-    
-
-    # --- Shared colorbars ---
-    # One for amplitudes (first 3)
-    cbar1 = fig.colorbar(ims[0], ax=axes[:2], orientation='vertical')
-    cbar1.set_label("Amplitude (×10⁻³)")
-
-    # One for errors (last 2)
-    cbar2 = fig.colorbar(ims[2], ax=axes[2], orientation='vertical')
-    cbar2.set_label("Error")
-
-    #plt.tight_layout()
-    plt.savefig('amplitude_error_with_respect_to_time.pdf')
-
     
 
 def create_energy_analysis_results(
     results_path: str,
     n_train_trajectories: int, 
-    best_model: bool
+    best_model: bool,
+    batch_size: int
 ):
 
     # Load the checkpoint file.
     config = load_configuration(f'{results_path}/config.yaml')
     dataset = load_test_dataset(config)
-    test_loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    test_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8)
+    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
     
     for initialization_id in os.listdir(f'{results_path}/{n_train_trajectories}_traj'):
 
@@ -410,21 +322,25 @@ def create_energy_analysis_results(
             q_points, p_points = x_batch[0], x_batch[1]
 
             with torch.no_grad():
-                predicted_energy_values = model.hamiltonian(q_points.to(device), p_points.to(device)).cpu().numpy()
+                predicted_energy_values = (model.hamiltonian(q_points.to(device), p_points.to(device))
+                                           - model.hamiltonian(torch.zeros(*q_points.shape, device=device), torch.zeros(*p_points.shape, device=device))).cpu().numpy()
 
             # Ground truth string parameters.
             gt_model = String(sr=88200)
             gt_energy = gt_model.hamiltonian(q_points.numpy(), p_points.numpy())
 
-            total_energy_model += np.abs(predicted_energy_values - gt_energy)
+            # Batched energy error
+            batch_error = np.sum((predicted_energy_values - gt_energy) ** 2)
+            total_energy_model += batch_error
 
             if np.max(gt_energy) < max_energy:
                 max_energy = max_energy
             else:
                 max_energy = np.max(gt_energy)
-                print(f'{max_energy:.3e}')
+                print(f'Max energy: {max_energy:.3e} | Energy error; {batch_error / batch_size / max_energy**2:.3e}')
 
-        print(f'Model {initialization_id} | Loss: {total_energy_model / dataset.N / max_energy:.3e}')
+        # TODO: Normalize by the number of time steps in the object.
+        print(f'Model {initialization_id} | Loss: {total_energy_model / (dataset.N * dataset.T) / max_energy**2:.3e}')
 
 
 
@@ -520,8 +436,12 @@ def create_spectrogram_comparison(
     p_ref = reference_trajectory[0, :, test_dataset.n: test_dataset.n * 2].cpu().numpy()
     p_trajectory_phnn_mid = p_trajectory_phnn[0, :, int((np.sqrt(2) * p_trajectory_phnn.shape[-1]) // 2)].cpu().numpy()
 
-    p_ref_im = make_spectrogram_image(signal=p_ref[:, int((np.sqrt(2) * p_ref.shape[-1]) // 2)], sr=sr, ylim=(0, 10000), vmin=-80.0, vmax=0.0)
-    p_trajectory_phnn_mid_im = make_spectrogram_image(signal=p_trajectory_phnn_mid, sr=sr, ylim=(0, 6000), vmin=-120.0, vmax=0.0)
+    p_ref_ = p_ref[:, int((np.sqrt(2) * p_ref.shape[-1]) // 2)]
+    p_ref_im = make_spectrogram_image(signal=p_ref_, sr=sr, ylim=(0, 10000), vmin=-80.0, vmax=0.0, ref=np.max)
+    p_trajectory_phnn_mid_im = make_spectrogram_image(signal=p_trajectory_phnn_mid, sr=sr, ylim=(0, 10000), vmin=-80.0, vmax=0.0, ref=np.max)
+    print((p_ref_ - p_trajectory_phnn_mid).shape)
+    p_error_spectrogram = make_spectrogram_image(signal=p_ref_ - p_trajectory_phnn_mid, sr=sr, ylim=(0, 10000), vmin=-80.0, vmax=0.0, ref=1.0)
 
     p_ref_im.savefig('reference_spectrogram.pdf')
     p_trajectory_phnn_mid_im.savefig('phnn_spectrogram.pdf')
+    p_error_spectrogram.savefig('error_spectrogram.pdf')

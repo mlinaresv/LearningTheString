@@ -2,8 +2,8 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sav_string.nn.upper_triangular_net import UpperTriangularNet
-from sav_string.nn.nonlinear_operators import LearnableDiff, LearnableEnergy
+from phnn_string.nn.upper_triangular_net import UpperTriangularNet
+from phnn_string.nn.nonlinear_operators import LearnableDiff, LearnableEnergy
 
 
 def compute_order_of_magnitude(element):
@@ -242,7 +242,11 @@ class PHNNString(nn.Module):
     
 
     def hamiltonian(self, q, p):
-        return self.Ek(p) + self.Ep_tension(q) + self.Ep_young(q) + self.Enl(q)
+        potential_energy_tension = self.Ep_tension(q)
+        potential_energy_young = self.Ep_young(q)
+        kinetic_energy = self.Ek(p)
+        nonlinear_energy = self.Enl(q)
+        return kinetic_energy + potential_energy_tension + potential_energy_young + nonlinear_energy.squeeze()
 
 
     

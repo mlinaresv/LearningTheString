@@ -1,12 +1,12 @@
 import torch
 from beartype import beartype
 import matplotlib.pyplot as plt
-from sav_string.nn.baseline import BaselineFlow
-from sav_string.nn.phnn_string import PHNNString
-from sav_string.nn.utils.dataset import H5TimeShiftDataset
-from sav_string.utils.string_ import listen_to_a_trajectory
-from sav_string.utils.loader import load_configuration, load_learnable_objects
-from sav_string.nn.utils.inference_during_training import inference_during_training
+from phnn_string.nn.baseline import BaselineFlow
+from phnn_string.nn.phnn_string import PHNNString
+from phnn_string.nn.utils.dataset import H5TimeShiftDataset
+from phnn_string.utils.string_ import listen_to_a_trajectory
+from phnn_string.utils.loader import load_configuration, load_learnable_objects
+from phnn_string.nn.utils.inference_during_training import inference_during_training
 
 
 @beartype

@@ -26,3 +26,7 @@ sav_string/runs/*
 # Configuration files.
 *.yaml
 *.sh
+
+# Ignore the while_at_sintef/ folder.
+while_at_sintef/*
+test_sav_string/*
