@@ -28,8 +28,8 @@ sav_string/runs/*
 *.sh
 
 # Ignore the while_at_sintef/ folder.
-while_at_sintef/*
-test_sav_string/*
+src/while_at_sintef/*
+src/test_sav_string/*
 
 # Python Jupyter Notebooks.
 *.ipynb
