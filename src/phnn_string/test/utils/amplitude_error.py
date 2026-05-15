@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from phnn_string.sav_solver import SAVSolver
-from phnn_string.nn.utils.inference_during_training import infer_from_states
+from phnn_string.test.inference_during_training import infer_from_states
 from phnn_string.utils.loader import load_configuration, load_train_dataset, load_test_dataset, load_model
 
 def create_amplitude_error_with_respect_to_time(

@@ -1,12 +1,10 @@
 import os
-import sys
 import yaml
 import torch
 import random
 import numpy as np
 from datetime import datetime
-sys.path.append('/u/anasynth/linares/LearningTheString')
-from phnn_string.runner.run import main
+from phnn_string.train.run import main
 from phnn_string.utils import manage_gpus as mgp
 from phnn_string.utils.notifier import send_slack
 from phnn_string.utils.loader import load_configuration

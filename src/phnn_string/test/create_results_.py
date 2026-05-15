@@ -10,8 +10,8 @@ from joblib import Parallel, delayed
 from torch.utils.data import DataLoader
 from phnn_string.sav_solver import SAVSolver
 from phnn_string.fd_string_model import String
-from phnn_string.nn.utils.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error, make_spectrogram_image
-from phnn_string.nn.utils.inference_after_training import infer_a_model, compute_inference_errors
+from phnn_string.test.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error, make_spectrogram_image
+from phnn_string.test.inference_after_training import infer_a_model, compute_inference_errors
 from phnn_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
 
 
