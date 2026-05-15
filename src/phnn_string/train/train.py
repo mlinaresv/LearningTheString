@@ -16,10 +16,10 @@ from phnn_string.nn.baseline import (
     ConvSequenceModel, 
     TransformerStateEstimator
 )
+from phnn_string.test.inference import infer
 from phnn_string.utils.string_ import make_spectrogram_image
 from phnn_string.nn.utils.errors import compute_non_linear_energy_error 
 from phnn_string.nn.nonlinear_operators import StateEstimator,StateDecoder
-from phnn_string.test.inference_during_training import inference_during_training
 from phnn_string.utils.losses import reconstruction_loss, latent_estimation_consistency_loss, next_momentum_loss, energy_losses
 from phnn_string.train.utils.writer import write_gradients_with_respect_to_loss, write_model_gradients, write_stability_conditions, write_constant_parameters_errors
 
@@ -346,7 +346,7 @@ def train(
                     ground_truth_initial_window = torch.from_numpy(val_dataset.file['states'][:, val_dataset.max_applied_control_index: val_dataset.max_applied_control_index + val_dataset.temporal_window_size, val_dataset.index])
 
                     ###### PREDICTION ######
-                    p_trajectory_infer, q_trajectory_infer, next_observation_infer = inference_during_training(
+                    p_trajectory_infer, q_trajectory_infer, next_observation_infer = infer(
                         model=model,
                         dataset=val_dataset,
                         sr=sr,

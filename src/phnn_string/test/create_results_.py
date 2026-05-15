@@ -8,14 +8,20 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from torch.utils.data import DataLoader
-from phnn_string.sav_solver import SAVSolver
-from phnn_string.fd_string_model import String
-from phnn_string.test.inference_during_training import compute_parameters_errors, infer_from_states, compute_non_linear_energy_error, make_spectrogram_image
-from phnn_string.test.inference_after_training import infer_a_model, compute_inference_errors
-from phnn_string.utils.loader import load_configuration, load_train_dataset, load_val_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
+from phnn_string.data.sav_solver import SAVSolver
+from phnn_string.data.fd_string_model import String
+from phnn_string.test.inference import infer_from_states
+from phnn_string.utils.string_ import make_spectrogram_image
+from phnn_string.nn.utils.errors import compute_parameters_errors
+from phnn_string.test.inference_from_path import infer_a_model, compute_inference_errors
+from phnn_string.utils.loader import load_configuration, load_train_dataset, load_learnable_objects, load_test_dataset, load_model, load_checkpoint_file
 
 
-def create_results_table(results_path, type_of_result='inference'):
+def create_results_table(
+        results_path, 
+        type_of_result='inference',
+        action='show'
+    ):
     """
     Parameters
     ----------
@@ -137,17 +143,25 @@ def create_results_table(results_path, type_of_result='inference'):
         records = [r for r in results if r is not None]
     
 
-    # Create DataFrame and concatenate, if existing, already inferred information.
     new_df = pd.DataFrame(records)
+
+    # Create DataFrame and concatenate, if existing, already inferred information.
     if not existing_df.empty:
         df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
         df = new_df
 
-    # The original file is either: completely unchanged or completely replaced!
-    tmp_path = csv_path + ".tmp"
-    df.to_csv(tmp_path, index=False)
-    os.replace(tmp_path, csv_path)
+    if action == 'save':
+        # The original file is either: completely unchanged or completely replaced!
+        tmp_path = csv_path + ".tmp"
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, csv_path)
+
+    elif action == 'show':
+        return df
+
+    else:
+        raise ValueError(f'The "action" attribute must be either "show" or "plot"!')
 
 
 

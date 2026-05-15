@@ -110,7 +110,7 @@ def infer_from_states(
 
 
 @beartype
-def inference_during_training(
+def infer(
         
         model: PHNNString | MLPNextValue | ConvSequenceModel | BaselineFlow, 
         dataset: H5TimeShiftDataset,
