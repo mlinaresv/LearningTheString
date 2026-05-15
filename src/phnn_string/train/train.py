@@ -11,19 +11,18 @@ from torch.utils.tensorboard import SummaryWriter
 from librosa.util.exceptions import ParameterError
 from phnn_string.nn.utils.dataset import H5TimeShiftDataset
 from phnn_string.utils.string_ import listen_to_a_trajectory
-from phnn_string.nn.baseline import MLPNextValue, ConvSequenceModel, TransformerStateEstimator
-from phnn_string.nn.nonlinear_operators import StateEstimator, StateDecoder
-from phnn_string.utils.losses import (reconstruction_loss, 
-                                     latent_estimation_consistency_loss, 
-                                     next_momentum_loss, 
-                                     energy_losses)
-from phnn_string.nn.utils.inference_during_training import (inference_during_training, 
-                                                           make_spectrogram_image, 
-                                                           compute_non_linear_energy_error, 
-                                                           write_constant_parameters_errors, 
-                                                           write_stability_conditions,
-                                                           write_model_gradients,
-                                                           write_gradients_with_respect_to_loss)
+from phnn_string.nn.baseline import (
+    MLPNextValue, 
+    ConvSequenceModel, 
+    TransformerStateEstimator
+)
+from phnn_string.utils.string_ import make_spectrogram_image
+from phnn_string.nn.utils.errors import compute_non_linear_energy_error 
+from phnn_string.nn.nonlinear_operators import StateEstimator,StateDecoder
+from phnn_string.nn.utils.inference_during_training import inference_during_training
+from phnn_string.utils.losses import reconstruction_loss, latent_estimation_consistency_loss, next_momentum_loss, energy_losses
+from phnn_string.nn.utils.writer import write_gradients_with_respect_to_loss, write_model_gradients, write_stability_conditions, write_constant_parameters_errors
+
 
 
 def build_dataloaders(train_dataset, val_dataset, train_batch_size, val_batch_size):

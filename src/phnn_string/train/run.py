@@ -1,7 +1,5 @@
-import sys
-sys.path.append('/u/anasynth/linares/LearningTheString')
 from phnn_string.train import train
-from phnn_string.sav_solver import SAVSolver
+from phnn_string.data.sav_solver import SAVSolver
 from phnn_string.utils.loader import load_optimizer
 from phnn_string.utils.losses import define_loss_function
 from phnn_string.utils.loader import load_datasets, load_learnable_objects

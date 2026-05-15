@@ -1,10 +1,8 @@
-import h5py
 import yaml
 import torch
 from torch.optim import Adam
 from beartype import beartype
 from phnn_string.nn.phnn_string import PHNNString
-from phnn_string.utils.string_ import save_as_hdf5
 from phnn_string.nn.utils.dataset import H5TimeShiftDataset
 from phnn_string.nn.nonlinear_operators import StateEstimator, StateDecoder
 from phnn_string.nn.baseline import MLPNextValue, ConvSequenceModel, BaselineFlow, TransformerStateEstimator
@@ -100,6 +98,7 @@ def load_val_dataset(config):
         estimate_positions=config["data"]["validation_estimate_positions"],
         n_steps=config["data"]["validation_n_steps"],
         temporal_window_size=config["data"]["validation_temporal_window_size"],
+        normalize=config["data"]["validation_normalize"],
         ignore_control=config["data"]["validation_ignore_control"]
         
     )

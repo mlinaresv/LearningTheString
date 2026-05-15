@@ -1,8 +1,7 @@
 import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from phnn_string.nn.upper_triangular_net import UpperTriangularNet
+from beartype import beartype
 from phnn_string.nn.nonlinear_operators import LearnableDiff, LearnableEnergy
 
 
@@ -10,15 +9,48 @@ def compute_order_of_magnitude(element):
     return math.floor(math.log10(abs(element)))
 
 
+@beartype
 class PHNNString(nn.Module):
+
+    """
+    A nn.Module class that identifies the nonquadratic energy function of a nonlinear string as well
+    as the different coefficients in its Hamiltonian.
+
+    Parameters
+    ----------
+    N: int
+        Number of discrete nodes (non-learnable parameter).
+    h: float
+        Spatial grid length (non-learnable parameter).
+    hidden_dim: int
+        Hidden dimension of the MLP learning the nonlinearity of the nonquadratic part of the Hamiltonian.
+    learn_linear_energy_operator: bool
+        Whether the Hamiltonian quadratic (linear dynamics) operator is learnt.
+    learn_nonlinear_energy: bool
+        Whether the Hamiltonian nonquadratic (nonlinear dynamics) operator is learnt.
+    learn_linear_constants: bool
+        Whether the model identifies the constants involved in the quadratic Hamiltonian part.
+    learn_tension_coefficient: bool
+        Whether the tension coefficient (T) is learnt.
+    learn_radius_coefficient: bool
+        Whether the radios coefficient (Ra) is learnt.
+    learn_dissipation_constants: bool
+        Whether the dissipation constants (eta0/eta1) are learnt.
+    learn_nonlinear_geometric_constant: bool
+        Whether the geometrical constant involved in the nonquadratic Hamiltonian is learnt.
+    learn_nonlinear_energy_filter: bool
+        Whether we learn the kernel filter that approximates the spatial operator.
+    true_string_parameters: dict
+        A dictionary containing the ground truth coefficients from the reference system.
+    """
 
     def __init__(
         self, 
         N: int, 
         h: float, 
         hidden_dim: int, 
-        learn_linear_energy_operator: str,
-        learn_nonlinear_energy: str = None,
+        learn_linear_energy_operator: bool,
+        learn_nonlinear_energy: bool,
         learn_linear_constants: bool = False,
         learn_tension_coefficient: bool = False,
         learn_radius_coefficient: bool = False,
@@ -62,33 +94,18 @@ class PHNNString(nn.Module):
 
 
         ###### QUADRATIC ENERGY ######
-        if self.learn_linear_energy_operator == 'cholesky':
-
-            self.El_Ut = UpperTriangularNet(input_dim=self.N,
-                                            hidden_dim=hidden_dim,
-                                            d=self.N,
-                                            dependent_on_x=False)
-
-        elif self.learn_linear_energy_operator == 'kernel':
+        if self.learn_linear_energy_operator:
                 
             self.linear_energy_kernel = LearnableDiff(h=1.0, learnable_filter=True)      
 
 
         ###### NON-QUADRATIC ENERGY ######
-        if self.learn_nonlinear_energy == 'cholesky':
-
-            self.Enl_Ut = UpperTriangularNet(
-                input_dim=self.N,
-                hidden_dim=hidden_dim,
-                d=self.N,
-                dependent_on_x=True
-            )
-        elif self.learn_nonlinear_energy == 'kernel':
+        if self.learn_nonlinear_energy:
 
             if not self.learn_nonlinear_energy_filter:
-                self.Enl_ = LearnableEnergy(hidden_dim=100, h=self.h, learnable_filter=False)
+                self.Enl_ = LearnableEnergy(hidden_dim=hidden_dim, h=self.h, learnable_filter=False)
             else:
-                self.Enl_ = LearnableEnergy(hidden_dim=100, h=1.0, learnable_filter=True)
+                self.Enl_ = LearnableEnergy(hidden_dim=hidden_dim, h=1.0, learnable_filter=True)
 
     @property
     def rho(self):
