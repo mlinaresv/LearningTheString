@@ -50,7 +50,7 @@ class PHNNString(nn.Module):
         h: float, 
         hidden_dim: int, 
         learn_linear_energy_operator: bool,
-        learn_nonlinear_energy: bool,
+        learn_nonlinear_energy: str,
         learn_linear_constants: bool = False,
         learn_tension_coefficient: bool = False,
         learn_radius_coefficient: bool = False,

@@ -90,6 +90,15 @@ def make_spectrogram_image(
     S = librosa.stft(signal, n_fft=8192, hop_length=512, win_length = 8192)
     S_db = librosa.amplitude_to_db(abs(S), ref=ref)
 
+    plt.rcParams.update({
+        "font.size": 14,        # base font size
+        "axes.titlesize": 17,
+        "axes.labelsize": 17,
+        "xtick.labelsize": 15,
+        "ytick.labelsize": 15,
+        "legend.fontsize": 13
+    })
+
     fig, ax = plt.subplots()
     im = librosa.display.specshow(
         S_db, 
